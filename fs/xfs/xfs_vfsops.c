@@ -1280,7 +1280,7 @@ xfs_sync_inodes(
 					xfs_iunlock(ip, XFS_ILOCK_SHARED);
 
 					error = xfs_itobp(mp, NULL, ip,
-							  &dip, &bp, 0, 0);
+							  &dip, &bp, 0);
 					if (!error) {
 						xfs_buf_relse(bp);
 					} else {
@@ -1658,7 +1658,7 @@ xfs_vget(
 	if (ino == 0)
 		return XFS_ERROR(ESTALE);
 
-	error = xfs_iget(mp, NULL, ino, 0, XFS_ILOCK_SHARED, &ip, 0);
+	error = xfs_iget(mp, NULL, ino, 0, XFS_ILOCK_SHARED, &ip);
 	if (error) {
 		*vpp = NULL;
 		return error;

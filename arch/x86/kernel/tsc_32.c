@@ -1,6 +1,7 @@
 #include <linux/sched.h>
 #include <linux/clocksource.h>
 #include <linux/workqueue.h>
+#include <linux/delay.h>
 #include <linux/cpufreq.h>
 #include <linux/jiffies.h>
 #include <linux/init.h>
@@ -10,6 +11,7 @@
 #include <asm/tsc.h>
 #include <asm/io.h>
 #include <asm/timer.h>
+#include <asm/hypervisor.h>
 
 #include "mach_timer.h"
 
@@ -130,10 +132,16 @@ unsigned long long sched_clock(void)
 unsigned long native_calculate_cpu_khz(void)
 {
 	unsigned long long start, end;
-	unsigned long count;
+	unsigned long count, hypervisor_tsc_khz;
 	u64 delta64 = (u64)ULLONG_MAX;
 	int i;
 	unsigned long flags;
+
+	hypervisor_tsc_khz = get_hypervisor_tsc_freq();
+	if (hypervisor_tsc_khz) {
+		printk(KERN_INFO "TSC: Frequency read from the hypervisor\n");
+		return hypervisor_tsc_khz;
+	}
 
 	local_irq_save(flags);
 
@@ -267,15 +275,28 @@ core_initcall(cpufreq_tsc);
 
 /* clock source code */
 
-static unsigned long current_tsc_khz = 0;
+static unsigned long current_tsc_khz;
+static struct clocksource clocksource_tsc;
 
+/*
+ * We compare the TSC to the cycle_last value in the clocksource
+ * structure to avoid a nasty time-warp issue. This can be observed in
+ * a very small window right after one CPU updated cycle_last under
+ * xtime lock and the other CPU reads a TSC value which is smaller
+ * than the cycle_last reference value due to a TSC which is slighty
+ * behind. This delta is nowhere else observable, but in that case it
+ * results in a forward time jump in the range of hours due to the
+ * unsigned delta calculation of the time keeping core code, which is
+ * necessary to support wrapping clocksources like pm timer.
+ */
 static cycle_t read_tsc(void)
 {
 	cycle_t ret;
 
 	rdtscll(ret);
 
-	return ret;
+	return ret >= clocksource_tsc.cycle_last ?
+		ret : clocksource_tsc.cycle_last;
 }
 
 static struct clocksource clocksource_tsc = {
@@ -333,6 +354,9 @@ __cpuinit int unsynchronized_tsc(void)
 {
 	if (!cpu_has_tsc || tsc_unstable)
 		return 1;
+
+	if (boot_cpu_has(X86_FEATURE_TSC_RELIABLE))
+		return 0;
 	/*
 	 * Intel systems are normally all synchronized.
 	 * Exceptions must mark TSC as unstable:
@@ -367,6 +391,8 @@ static inline void check_geode_tsc_reliable(void) { }
 
 void __init tsc_init(void)
 {
+	u64 lpj;
+
 	if (!cpu_has_tsc || tsc_disable)
 		goto out_no_tsc;
 
@@ -375,6 +401,10 @@ void __init tsc_init(void)
 
 	if (!cpu_khz)
 		goto out_no_tsc;
+
+	lpj = ((u64)tsc_khz * 1000);
+	do_div(lpj, HZ);
+	lpj_tsc = lpj;
 
 	printk("Detected %lu.%03lu MHz processor.\n",
 				(unsigned long)cpu_khz / 1000,
@@ -388,6 +418,9 @@ void __init tsc_init(void)
 
 	unsynchronized_tsc();
 	check_geode_tsc_reliable();
+	if (boot_cpu_has(X86_FEATURE_TSC_RELIABLE))
+		 clocksource_tsc.flags &= ~CLOCK_SOURCE_MUST_VERIFY;
+
 	current_tsc_khz = tsc_khz;
 	clocksource_tsc.mult = clocksource_khz2mult(current_tsc_khz,
 							clocksource_tsc.shift);

@@ -222,6 +222,14 @@ and is between 256 and 4096 characters. It is defined in the file
 			Warning: Many of these options can produce a lot of
 			output and make your system unusable. Be very careful.
 
+ 	acpi.power_nocheck=	[HW,ACPI]
+ 			Format: 1/0 enable/disable the check of power state.
+ 			On some bogus BIOS the _PSC object/_STA object of
+ 			power resource can't return the correct device power
+ 			state. In such case it is unneccessary to check its
+ 			power state again in power transition.
+ 			1 : disable the power state check
+
 	acpi_pm_good	[X86-32,X86-64]
 			Override the pmtimer bug detection: force the kernel
 			to assume that this machine's pmtimer latches its value
@@ -545,6 +553,10 @@ and is between 256 and 4096 characters. It is defined in the file
 			This is a 16-member array composed of values
 			ranging from 0-255.
 
+	default_relatime=
+			[FS] mount all filesystems with relative atime
+			updates by default.
+
 	vt.default_utf8=
 			[VT]
 			Format=<0|1>
@@ -588,8 +600,7 @@ and is between 256 and 4096 characters. It is defined in the file
 	eata=		[HW,SCSI]
 
 	edd=		[EDD]
-			Format: {"of[f]" | "sk[ipmbr]"}
-			See comment in arch/i386/boot/edd.S
+			Format: {"off" | "on" | "sk[ipmbr]"}
 
 	eisa_irq_edge=	[PARISC,HW]
 			See header of drivers/parisc/eisa.c.
@@ -785,6 +796,16 @@ and is between 256 and 4096 characters. It is defined in the file
 			than 32 bit addressing. The default is to look
 			for translation below 32 bit and if not available
 			then look in the higher range.
+
+	io_delay=	[X86-32,X86-64] I/O delay method
+		0x80
+			Standard port 0x80 based delay
+		0xed
+			Alternate port 0xed based delay (needed on some systems)
+		udelay
+			Simple two microseconds delay
+		none
+			No delay
 
 	io7=		[HW] IO7 for Marvel based alpha systems
 			See comment before marvel_specify_io7 in
@@ -1320,6 +1341,8 @@ and is between 256 and 4096 characters. It is defined in the file
 				disable the use of PCIE advanced error reporting.
 		nodomains	[PCI] Disable support for multiple PCI
 				root domains (aka PCI segments, in ACPI-speak).
+		mmconf		[X86-32,X86_64] Enable use of MMCONFIG for PCI
+				Configuration
 		nommconf	[X86-32,X86_64] Disable use of MMCONFIG for PCI
 				Configuration
 		nomsi		[MSI] If the PCI_MSI kernel config parameter is
@@ -1518,6 +1541,10 @@ and is between 256 and 4096 characters. It is defined in the file
 	reboot=		[BUGS=X86-32,BUGS=ARM,BUGS=IA-64] Rebooting mode
 			Format: <reboot_mode>[,<reboot_mode2>[,...]]
 			See arch/*/kernel/reboot.c or arch/*/kernel/process.c			
+
+	relatime_interval=
+			[FS] relative atime update frequency, in seconds.
+			(default: 1 day: 86400 seconds)
 
 	reserve=	[KNL,BUGS] Force the kernel to ignore some iomem area
 

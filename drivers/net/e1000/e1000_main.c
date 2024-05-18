@@ -218,6 +218,10 @@ module_param(copybreak, uint, 0644);
 MODULE_PARM_DESC(copybreak,
 	"Maximum size of packet that is copied to a new buffer on receive");
 
+static int eeprom_bad_csum_allow __read_mostly = 0;
+module_param(eeprom_bad_csum_allow, int, 0);
+MODULE_PARM_DESC(eeprom_bad_csum_allow, "Allow bad EEPROM checksums");
+
 static pci_ers_result_t e1000_io_error_detected(struct pci_dev *pdev,
                      pci_channel_state_t state);
 static pci_ers_result_t e1000_io_slot_reset(struct pci_dev *pdev);
@@ -1001,16 +1005,19 @@ e1000_probe(struct pci_dev *pdev,
 		goto err_eeprom;
 	}
 
-	/* before reading the EEPROM, reset the controller to
-	 * put the device in a known good starting state */
-
-	e1000_reset_hw(&adapter->hw);
-
-	/* make sure the EEPROM is good */
-
 	if (e1000_validate_eeprom_checksum(&adapter->hw) < 0) {
-		DPRINTK(PROBE, ERR, "The EEPROM Checksum Is Not Valid\n");
-		goto err_eeprom;
+		/* before reading the EEPROM, reset the controller to
+	 	* put the device in a known good starting state */
+
+		e1000_reset_hw(&adapter->hw);
+
+		/* make sure the EEPROM is good */
+
+		if (e1000_validate_eeprom_checksum(&adapter->hw) < 0) {
+			DPRINTK(PROBE, ERR, "The EEPROM Checksum Is Not Valid\n");
+			if (!eeprom_bad_csum_allow)
+				goto err_eeprom;
+		}
 	}
 
 	/* copy the MAC address out of the EEPROM */
@@ -1911,18 +1918,6 @@ e1000_setup_rctl(struct e1000_adapter *adapter)
 	rctl &= ~E1000_RCTL_SZ_4096;
 	rctl |= E1000_RCTL_BSEX;
 	switch (adapter->rx_buffer_len) {
-		case E1000_RXBUFFER_256:
-			rctl |= E1000_RCTL_SZ_256;
-			rctl &= ~E1000_RCTL_BSEX;
-			break;
-		case E1000_RXBUFFER_512:
-			rctl |= E1000_RCTL_SZ_512;
-			rctl &= ~E1000_RCTL_BSEX;
-			break;
-		case E1000_RXBUFFER_1024:
-			rctl |= E1000_RCTL_SZ_1024;
-			rctl &= ~E1000_RCTL_BSEX;
-			break;
 		case E1000_RXBUFFER_2048:
 		default:
 			rctl |= E1000_RCTL_SZ_2048;
@@ -3532,13 +3527,7 @@ e1000_change_mtu(struct net_device *netdev, int new_mtu)
 	 * larger slab size
 	 * i.e. RXBUFFER_2048 --> size-4096 slab */
 
-	if (max_frame <= E1000_RXBUFFER_256)
-		adapter->rx_buffer_len = E1000_RXBUFFER_256;
-	else if (max_frame <= E1000_RXBUFFER_512)
-		adapter->rx_buffer_len = E1000_RXBUFFER_512;
-	else if (max_frame <= E1000_RXBUFFER_1024)
-		adapter->rx_buffer_len = E1000_RXBUFFER_1024;
-	else if (max_frame <= E1000_RXBUFFER_2048)
+	if (max_frame <= E1000_RXBUFFER_2048)
 		adapter->rx_buffer_len = E1000_RXBUFFER_2048;
 	else if (max_frame <= E1000_RXBUFFER_4096)
 		adapter->rx_buffer_len = E1000_RXBUFFER_4096;
@@ -4173,13 +4162,23 @@ e1000_clean_rx_irq(struct e1000_adapter *adapter,
 		                 PCI_DMA_FROMDEVICE);
 
 		length = le16_to_cpu(rx_desc->length);
+		/* !EOP means multiple descriptors were used to store a single
+		 * packet, if thats the case we need to toss it.  In fact, we
+		 * to toss every packet with the EOP bit clear and the next
+		 * frame that _does_ have the EOP bit set, as it is by
+		 * definition only a frame fragment
+		 */
+		if (unlikely(!(status & E1000_RXD_STAT_EOP)))
+			adapter->discarding = true;
 
-		if (unlikely(!(status & E1000_RXD_STAT_EOP))) {
+		if (adapter->discarding) {
 			/* All receives must fit into a single buffer */
 			E1000_DBG("%s: Receive packet consumed multiple"
 				  " buffers\n", netdev->name);
 			/* recycle */
 			buffer_info->skb = skb;
+			if (status & E1000_RXD_STAT_EOP)
+				adapter->discarding = false;
 			goto next_desc;
 		}
 

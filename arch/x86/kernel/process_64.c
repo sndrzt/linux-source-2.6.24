@@ -59,6 +59,8 @@ unsigned long kernel_thread_flags = CLONE_VM | CLONE_UNTRACED;
 unsigned long boot_option_idle_override = 0;
 EXPORT_SYMBOL(boot_option_idle_override);
 
+extern int force_personality32;
+
 /*
  * Powermanagement idle function, if any..
  */
@@ -212,13 +214,12 @@ void cpu_idle (void)
 	current_thread_info()->status |= TS_POLLING;
 	/* endless idle loop with no priority at all */
 	while (1) {
+		tick_nohz_stop_sched_tick();
 		while (!need_resched()) {
 			void (*idle)(void);
 
 			if (__get_cpu_var(cpu_idle_state))
 				__get_cpu_var(cpu_idle_state) = 0;
-
-			tick_nohz_stop_sched_tick();
 
 			rmb();
 			idle = pm_idle;
@@ -409,15 +410,6 @@ void flush_thread(void)
 {
 	struct task_struct *tsk = current;
 
-	if (test_tsk_thread_flag(tsk, TIF_ABI_PENDING)) {
-		clear_tsk_thread_flag(tsk, TIF_ABI_PENDING);
-		if (test_tsk_thread_flag(tsk, TIF_IA32)) {
-			clear_tsk_thread_flag(tsk, TIF_IA32);
-		} else {
-			set_tsk_thread_flag(tsk, TIF_IA32);
-			current_thread_info()->status |= TS_COMPAT;
-		}
-	}
 	clear_tsk_thread_flag(tsk, TIF_DEBUG);
 
 	tsk->thread.debugreg0 = 0;
@@ -432,6 +424,18 @@ void flush_thread(void)
 	 */
 	clear_fpu(tsk);
 	clear_used_math();
+}
+
+void set_personality_ia32(void)
+{
+	/* inherit personality from parent */
+
+	/* Make sure to be in 32bit mode */
+	set_thread_flag(TIF_IA32);
+	current->personality |= force_personality32;
+
+	/* Prepare the first "return" to user space */
+	current_thread_info()->status |= TS_COMPAT;
 }
 
 void release_thread(struct task_struct *dead_task)

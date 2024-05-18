@@ -38,9 +38,14 @@ asmlinkage long sys_utime(char __user *filename, struct utimbuf __user *times)
 
 #endif
 
+static bool nsec_special(long nsec)
+{
+	return nsec == UTIME_OMIT || nsec == UTIME_NOW;
+}
+
 static bool nsec_valid(long nsec)
 {
-	if (nsec == UTIME_OMIT || nsec == UTIME_NOW)
+	if (nsec_special(nsec))
 		return true;
 
 	return nsec >= 0 && nsec <= 999999999;
@@ -54,7 +59,7 @@ long do_utimes(int dfd, char __user *filename, struct timespec *times, int flags
 {
 	int error;
 	struct nameidata nd;
-	struct dentry *dentry;
+	struct path path;
 	struct inode *inode;
 	struct iattr newattrs;
 	struct file *f = NULL;
@@ -77,16 +82,17 @@ long do_utimes(int dfd, char __user *filename, struct timespec *times, int flags
 		f = fget(dfd);
 		if (!f)
 			goto out;
-		dentry = f->f_path.dentry;
+		path = f->f_path;
 	} else {
 		error = __user_walk_fd(dfd, filename, (flags & AT_SYMLINK_NOFOLLOW) ? 0 : LOOKUP_FOLLOW, &nd);
 		if (error)
 			goto out;
 
-		dentry = nd.dentry;
+		path.dentry = nd.dentry;
+		path.mnt = nd.mnt;
 	}
 
-	inode = dentry->d_inode;
+	inode = path.dentry->d_inode;
 
 	error = -EROFS;
 	if (IS_RDONLY(inode))
@@ -114,7 +120,15 @@ long do_utimes(int dfd, char __user *filename, struct timespec *times, int flags
 			newattrs.ia_mtime.tv_nsec = times[1].tv_nsec;
 			newattrs.ia_valid |= ATTR_MTIME_SET;
 		}
-	} else {
+	}
+
+	/*
+	 * If times is NULL or both times are either UTIME_OMIT or
+	 * UTIME_NOW, then need to check permissions, because
+	 * inode_change_ok() won't do it.
+	 */
+	if (!times || (nsec_special(times[0].tv_nsec) &&
+		       nsec_special(times[1].tv_nsec))) {
 		error = -EACCES;
                 if (IS_IMMUTABLE(inode))
                         goto dput_and_out;
@@ -131,7 +145,7 @@ long do_utimes(int dfd, char __user *filename, struct timespec *times, int flags
 		}
 	}
 	mutex_lock(&inode->i_mutex);
-	error = notify_change(dentry, &newattrs);
+	error = fnotify_change(path.dentry, path.mnt, &newattrs, f);
 	mutex_unlock(&inode->i_mutex);
 dput_and_out:
 	if (f)

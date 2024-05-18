@@ -514,21 +514,6 @@ static inline void set_page_links(struct page *page, enum zone_type zone,
 }
 
 /*
- * If a hint addr is less than mmap_min_addr change hint to be as
- * low as possible but still greater than mmap_min_addr
- */
-static inline unsigned long round_hint_to_min(unsigned long hint)
-{
-#ifdef CONFIG_SECURITY
-	hint &= PAGE_MASK;
-	if (((void *)hint != NULL) &&
-	    (hint < mmap_min_addr))
-		return PAGE_ALIGN(mmap_min_addr);
-#endif
-	return hint;
-}
-
-/*
  * Some inline functions in vmstat.h depend on page_zone()
  */
 #include <linux/vmstat.h>
@@ -1084,6 +1069,28 @@ static inline struct vm_area_struct * find_vma_intersection(struct mm_struct * m
 static inline unsigned long vma_pages(struct vm_area_struct *vma)
 {
 	return (vma->vm_end - vma->vm_start) >> PAGE_SHIFT;
+}
+
+static inline int stack_guard_page(struct vm_area_struct *vma,
+	unsigned long addr)
+{
+	struct vm_area_struct *prev;
+
+	/* No need to look further if addr is not the start of a stack vma */
+	if (!(vma->vm_flags & VM_GROWSDOWN) || vma->vm_start != addr)
+		return 0;
+
+	prev = find_vma(vma->vm_mm, addr - PAGE_SIZE);
+
+	/*
+	 * Only if there is no previous vma that is a continuation of this
+	 * vma, the current vma includes the guard page.
+	 */
+	if (!prev || !(prev->vm_flags & VM_GROWSDOWN) ||
+	    prev->vm_end != vma->vm_start)
+		return 1;
+
+	return 0;
 }
 
 pgprot_t vm_get_page_prot(unsigned long vm_flags);

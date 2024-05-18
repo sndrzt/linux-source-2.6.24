@@ -204,34 +204,42 @@ typedef struct compat_xfs_bstat {
 	__u16		bs_aextents;	/* attribute number of extents	*/
 } _PACKED compat_xfs_bstat_t;
 
+/* Return 0 on success or positive error (to xfs_bulkstat()) */
 STATIC int xfs_bulkstat_one_fmt_compat(
 	void			__user *ubuffer,
+	int			ubsize,
+	int			*ubused,
 	const xfs_bstat_t	*buffer)
 {
 	compat_xfs_bstat_t __user *p32 = ubuffer;
 
-	if (put_user(buffer->bs_ino, &p32->bs_ino) ||
-	    put_user(buffer->bs_mode, &p32->bs_mode) ||
-	    put_user(buffer->bs_nlink, &p32->bs_nlink) ||
-	    put_user(buffer->bs_uid, &p32->bs_uid) ||
-	    put_user(buffer->bs_gid, &p32->bs_gid) ||
-	    put_user(buffer->bs_rdev, &p32->bs_rdev) ||
-	    put_user(buffer->bs_blksize, &p32->bs_blksize) ||
-	    put_user(buffer->bs_size, &p32->bs_size) ||
+	if (ubsize < sizeof(*p32))
+		return XFS_ERROR(ENOMEM);
+
+	if (put_user(buffer->bs_ino,      &p32->bs_ino)		||
+	    put_user(buffer->bs_mode,     &p32->bs_mode)	||
+	    put_user(buffer->bs_nlink,    &p32->bs_nlink)	||
+	    put_user(buffer->bs_uid,      &p32->bs_uid)		||
+	    put_user(buffer->bs_gid,      &p32->bs_gid)		||
+	    put_user(buffer->bs_rdev,     &p32->bs_rdev)	||
+	    put_user(buffer->bs_blksize,  &p32->bs_blksize)	||
+	    put_user(buffer->bs_size,     &p32->bs_size)	||
 	    xfs_bstime_store_compat(&p32->bs_atime, &buffer->bs_atime) ||
 	    xfs_bstime_store_compat(&p32->bs_mtime, &buffer->bs_mtime) ||
 	    xfs_bstime_store_compat(&p32->bs_ctime, &buffer->bs_ctime) ||
-	    put_user(buffer->bs_blocks, &p32->bs_blocks) ||
-	    put_user(buffer->bs_xflags, &p32->bs_xflags) ||
-	    put_user(buffer->bs_extsize, &p32->bs_extsize) ||
-	    put_user(buffer->bs_extents, &p32->bs_extents) ||
-	    put_user(buffer->bs_gen, &p32->bs_gen) ||
-	    put_user(buffer->bs_projid, &p32->bs_projid) ||
-	    put_user(buffer->bs_dmevmask, &p32->bs_dmevmask) ||
-	    put_user(buffer->bs_dmstate, &p32->bs_dmstate) ||
+	    put_user(buffer->bs_blocks,   &p32->bs_blocks)	||
+	    put_user(buffer->bs_xflags,   &p32->bs_xflags)	||
+	    put_user(buffer->bs_extsize,  &p32->bs_extsize)	||
+	    put_user(buffer->bs_extents,  &p32->bs_extents)	||
+	    put_user(buffer->bs_gen,      &p32->bs_gen)		||
+	    put_user(buffer->bs_projid,   &p32->bs_projid)	||
+	    put_user(buffer->bs_dmevmask, &p32->bs_dmevmask)	||
+	    put_user(buffer->bs_dmstate,  &p32->bs_dmstate)	||
 	    put_user(buffer->bs_aextents, &p32->bs_aextents))
-		return -EFAULT;
-	return sizeof(*p32);
+		return XFS_ERROR(EFAULT);
+	if (ubused)
+		*ubused = sizeof(*p32);
+	return 0;
 }
 
 
@@ -250,14 +258,27 @@ typedef struct compat_xfs_fsop_bulkreq {
 #define XFS_IOC_FSINUMBERS_32 \
 	_IOWR('X', 103, struct compat_xfs_fsop_bulkreq)
 
+STATIC int
+xfs_bulkstat_one_compat(
+	xfs_mount_t	*mp,		/* mount point for filesystem */
+	xfs_ino_t	ino,		/* inode number to get data for */
+	void		__user *buffer,	/* buffer to place output in */
+	int		ubsize,		/* size of buffer */
+	int		*ubused,	/* bytes used by me */
+	int		*stat)		/* BULKSTAT_RV_... */
+{
+	return xfs_bulkstat_one_int(mp, ino, buffer, ubsize,
+				    xfs_bulkstat_one_fmt_compat,
+				    ubused, stat);
+}
+
 /* copied from xfs_ioctl.c */
 STATIC int
-xfs_ioc_bulkstat_compat(
-	xfs_mount_t		*mp,
-	unsigned int		cmd,
-	void			__user *arg)
+xfs_compat_ioc_bulkstat(
+	xfs_mount_t		  *mp,
+	unsigned int		  cmd,
+	compat_xfs_fsop_bulkreq_t __user *p32)
 {
-	compat_xfs_fsop_bulkreq_t __user *p32 = (void __user *)arg;
 	u32			addr;
 	xfs_fsop_bulkreq_t	bulkreq;
 	int			count;	/* # of records returned */
@@ -294,16 +315,13 @@ xfs_ioc_bulkstat_compat(
 	if (bulkreq.ubuffer == NULL)
 		return -XFS_ERROR(EINVAL);
 
-	if (cmd == XFS_IOC_FSINUMBERS)
+	if (cmd == XFS_IOC_FSINUMBERS_32)
 		error = xfs_inumbers(mp, &inlast, &count,
 				bulkreq.ubuffer, xfs_inumbers_fmt_compat);
 	else {
-		/* declare a var to get a warning in case the type changes */
-		bulkstat_one_fmt_pf formatter = xfs_bulkstat_one_fmt_compat;
 		error = xfs_bulkstat(mp, &inlast, &count,
-			xfs_bulkstat_one, formatter,
-			sizeof(compat_xfs_bstat_t), bulkreq.ubuffer,
-			BULKSTAT_FG_QUICK, &done);
+			xfs_bulkstat_one_compat, sizeof(compat_xfs_bstat_t),
+			bulkreq.ubuffer, &done);
 	}
 	if (error)
 		return -error;
@@ -445,9 +463,7 @@ xfs_compat_ioctl(
 	case XFS_IOC_FSBULKSTAT_32:
 	case XFS_IOC_FSBULKSTAT_SINGLE_32:
 	case XFS_IOC_FSINUMBERS_32:
-		cmd = _NATIVE_IOC(cmd, struct xfs_fsop_bulkreq);
-		return xfs_ioc_bulkstat_compat(XFS_I(inode)->i_mount,
-				cmd, (void __user*)arg);
+		return xfs_compat_ioc_bulkstat(XFS_I(inode)->i_mount, cmd, arg);
 	case XFS_IOC_FD_TO_HANDLE_32:
 	case XFS_IOC_PATH_TO_HANDLE_32:
 	case XFS_IOC_PATH_TO_FSHANDLE_32:

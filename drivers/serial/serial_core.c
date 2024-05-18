@@ -1022,10 +1022,10 @@ uart_wait_modem_status(struct uart_state *state, unsigned long arg)
  * NB: both 1->0 and 0->1 transitions are counted except for
  *     RI where only 0->1 is counted.
  */
-static int uart_get_count(struct uart_state *state,
-			  struct serial_icounter_struct __user *icnt)
+static int uart_get_icount(struct tty_struct *tty,
+			  struct serial_icounter_struct *icount)
 {
-	struct serial_icounter_struct icount;
+	struct uart_state *state = tty->driver_data;
 	struct uart_icount cnow;
 	struct uart_port *port = state->port;
 
@@ -1033,19 +1033,19 @@ static int uart_get_count(struct uart_state *state,
 	memcpy(&cnow, &port->icount, sizeof(struct uart_icount));
 	spin_unlock_irq(&port->lock);
 
-	icount.cts         = cnow.cts;
-	icount.dsr         = cnow.dsr;
-	icount.rng         = cnow.rng;
-	icount.dcd         = cnow.dcd;
-	icount.rx          = cnow.rx;
-	icount.tx          = cnow.tx;
-	icount.frame       = cnow.frame;
-	icount.overrun     = cnow.overrun;
-	icount.parity      = cnow.parity;
-	icount.brk         = cnow.brk;
-	icount.buf_overrun = cnow.buf_overrun;
+	icount->cts         = cnow.cts;
+	icount->dsr         = cnow.dsr;
+	icount->rng         = cnow.rng;
+	icount->dcd         = cnow.dcd;
+	icount->rx          = cnow.rx;
+	icount->tx          = cnow.tx;
+	icount->frame       = cnow.frame;
+	icount->overrun     = cnow.overrun;
+	icount->parity      = cnow.parity;
+	icount->brk         = cnow.brk;
+	icount->buf_overrun = cnow.buf_overrun;
 
-	return copy_to_user(icnt, &icount, sizeof(icount)) ? -EFAULT : 0;
+	return 0;
 }
 
 /*
@@ -1097,10 +1097,6 @@ uart_ioctl(struct tty_struct *tty, struct file *filp, unsigned int cmd,
 	switch (cmd) {
 	case TIOCMIWAIT:
 		ret = uart_wait_modem_status(state, arg);
-		break;
-
-	case TIOCGICOUNT:
-		ret = uart_get_count(state, uarg);
 		break;
 	}
 
@@ -2197,6 +2193,7 @@ static const struct tty_operations uart_ops = {
 #endif
 	.tiocmget	= uart_tiocmget,
 	.tiocmset	= uart_tiocmset,
+	.get_icount	= uart_get_icount,
 };
 
 /**

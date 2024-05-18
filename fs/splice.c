@@ -314,7 +314,7 @@ __generic_file_splice_read(struct file *in, loff_t *ppos,
 				break;
 
 			error = add_to_page_cache_lru(page, mapping, index,
-					      GFP_KERNEL);
+						mapping_gfp_mask(mapping));
 			if (unlikely(error)) {
 				page_cache_release(page);
 				if (error == -EEXIST)
@@ -364,8 +364,10 @@ __generic_file_splice_read(struct file *in, loff_t *ppos,
 			 * for an in-flight io page
 			 */
 			if (flags & SPLICE_F_NONBLOCK) {
-				if (TestSetPageLocked(page))
+				if (TestSetPageLocked(page)) {
+					error = -EAGAIN;
 					break;
+				}
 			} else
 				lock_page(page);
 
@@ -473,9 +475,8 @@ ssize_t generic_file_splice_read(struct file *in, loff_t *ppos,
 				 struct pipe_inode_info *pipe, size_t len,
 				 unsigned int flags)
 {
-	ssize_t spliced;
-	int ret;
 	loff_t isize, left;
+	int ret;
 
 	isize = i_size_read(in->f_mapping->host);
 	if (unlikely(*ppos >= isize))
@@ -485,29 +486,9 @@ ssize_t generic_file_splice_read(struct file *in, loff_t *ppos,
 	if (unlikely(left < len))
 		len = left;
 
-	ret = 0;
-	spliced = 0;
-	while (len && !spliced) {
-		ret = __generic_file_splice_read(in, ppos, pipe, len, flags);
-
-		if (ret < 0)
-			break;
-		else if (!ret) {
-			if (spliced)
-				break;
-			if (flags & SPLICE_F_NONBLOCK) {
-				ret = -EAGAIN;
-				break;
-			}
-		}
-
+	ret = __generic_file_splice_read(in, ppos, pipe, len, flags);
+	if (ret > 0)
 		*ppos += ret;
-		len -= ret;
-		spliced += ret;
-	}
-
-	if (spliced)
-		return spliced;
 
 	return ret;
 }
@@ -738,10 +719,19 @@ ssize_t splice_from_pipe(struct pipe_inode_info *pipe, struct file *out,
 	 * ->commit_write. Most of the time, these expect i_mutex to
 	 * be held. Since this may result in an ABBA deadlock with
 	 * pipe->inode, we have to order lock acquiry here.
+	 *
+	 * Outer lock must be inode->i_mutex, as pipe_wait() will
+	 * release and reacquire pipe->inode->i_mutex, AND inode must
+	 * never be a pipe.
 	 */
-	inode_double_lock(inode, pipe->inode);
+	WARN_ON(S_ISFIFO(inode->i_mode));
+	mutex_lock_nested(&inode->i_mutex, I_MUTEX_PARENT);
+	if (pipe->inode)
+		mutex_lock_nested(&pipe->inode->i_mutex, I_MUTEX_CHILD);
 	ret = __splice_from_pipe(pipe, &sd, actor);
-	inode_double_unlock(inode, pipe->inode);
+	if (pipe->inode)
+		mutex_unlock(&pipe->inode->i_mutex);
+	mutex_unlock(&inode->i_mutex);
 
 	return ret;
 }
@@ -775,7 +765,7 @@ generic_file_splice_write_nolock(struct pipe_inode_info *pipe, struct file *out,
 	ssize_t ret;
 	int err;
 
-	err = remove_suid(out->f_path.dentry);
+	err = remove_suid(&out->f_path);
 	if (unlikely(err))
 		return err;
 
@@ -835,7 +825,7 @@ generic_file_splice_write(struct pipe_inode_info *pipe, struct file *out,
 		if (killpriv)
 			err = security_inode_killpriv(out->f_path.dentry);
 		if (!err && killsuid)
-			err = __remove_suid(out->f_path.dentry, killsuid);
+			err = __remove_suid(&out->f_path, killsuid);
 		mutex_unlock(&inode->i_mutex);
 		if (err)
 			return err;
@@ -893,8 +883,8 @@ EXPORT_SYMBOL(generic_splice_sendpage);
 /*
  * Attempt to initiate a splice from pipe to file.
  */
-static long do_splice_from(struct pipe_inode_info *pipe, struct file *out,
-			   loff_t *ppos, size_t len, unsigned int flags)
+long do_splice_from(struct pipe_inode_info *pipe, struct file *out,
+		    loff_t *ppos, size_t len, unsigned int flags)
 {
 	int ret;
 
@@ -903,6 +893,9 @@ static long do_splice_from(struct pipe_inode_info *pipe, struct file *out,
 
 	if (unlikely(!(out->f_mode & FMODE_WRITE)))
 		return -EBADF;
+
+	if (unlikely(out->f_flags & O_APPEND))
+		return -EINVAL;
 
 	ret = rw_verify_area(WRITE, out, ppos, len);
 	if (unlikely(ret < 0))
@@ -914,13 +907,14 @@ static long do_splice_from(struct pipe_inode_info *pipe, struct file *out,
 
 	return out->f_op->splice_write(pipe, out, ppos, len, flags);
 }
+EXPORT_SYMBOL(do_splice_from);
 
 /*
  * Attempt to initiate a splice from a file to a pipe.
  */
-static long do_splice_to(struct file *in, loff_t *ppos,
-			 struct pipe_inode_info *pipe, size_t len,
-			 unsigned int flags)
+long do_splice_to(struct file *in, loff_t *ppos,
+		  struct pipe_inode_info *pipe, size_t len,
+		  unsigned int flags)
 {
 	int ret;
 
@@ -940,6 +934,7 @@ static long do_splice_to(struct file *in, loff_t *ppos,
 
 	return in->f_op->splice_read(in, ppos, pipe, len, flags);
 }
+EXPORT_SYMBOL(do_splice_to);
 
 /**
  * splice_direct_to_actor - splices data directly between two non-pipes
@@ -1184,6 +1179,9 @@ static int copy_from_user_mmap_sem(void *dst, const void __user *src, size_t n)
 {
 	int partial;
 
+	if (!access_ok(VERIFY_READ, src, n))
+		return -EFAULT;
+
 	pagefault_disable();
 	partial = __copy_from_user_inatomic(dst, src, n);
 	pagefault_enable();
@@ -1236,7 +1234,7 @@ static int get_iovec_page_array(const struct iovec __user *iov,
 		if (unlikely(!len))
 			break;
 		error = -EFAULT;
-		if (unlikely(!base))
+		if (!access_ok(VERIFY_READ, base, len))
 			break;
 
 		/*
@@ -1388,6 +1386,11 @@ static long vmsplice_to_user(struct file *file, const struct iovec __user *iov,
 		if (unlikely(!len))
 			break;
 		if (unlikely(!base)) {
+			error = -EFAULT;
+			break;
+		}
+
+		if (unlikely(!access_ok(VERIFY_WRITE, base, len))) {
 			error = -EFAULT;
 			break;
 		}

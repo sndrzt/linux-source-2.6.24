@@ -230,6 +230,7 @@ struct ibm_init_struct {
 	char param[32];
 
 	int (*init) (struct ibm_init_struct *);
+	mode_t base_procfs_mode;
 	struct ibm_struct *data;
 };
 

@@ -769,6 +769,8 @@ static int __init inet6_init(void)
 #endif
 #endif
 
+	initialize_hashidentrnd();
+
 	err = proto_register(&tcpv6_prot, 1);
 	if (err)
 		goto out;

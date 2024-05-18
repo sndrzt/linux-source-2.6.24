@@ -18,6 +18,7 @@
 #include <linux/pci.h>
 #include <linux/bitops.h>
 #include <linux/ioport.h>
+#include <linux/suspend.h>
 #include <asm/e820.h>
 #include <asm/io.h>
 #include <asm/gart.h>
@@ -75,6 +76,8 @@ static u32 __init allocate_aperture(void)
 	printk("Mapping aperture over %d KB of RAM @ %lx\n",
 	       aper_size >> 10, __pa(p)); 
 	insert_aperture_resource((u32)__pa(p), aper_size);
+	register_nosave_region((u32)__pa(p) >> PAGE_SHIFT,
+				(u32)__pa(p+aper_size) >> PAGE_SHIFT);
 	return (u32)__pa(p); 
 }
 
@@ -296,4 +299,6 @@ void __init gart_iommu_hole_init(void)
 		write_pci_config(0, num, 3, 0x90, aper_order<<1); 
 		write_pci_config(0, num, 3, 0x94, aper_alloc>>25); 
 	} 
+
+	set_up_gart_resume(aper_order, aper_alloc);
 } 

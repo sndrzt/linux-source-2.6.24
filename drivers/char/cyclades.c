@@ -3975,52 +3975,6 @@ cy_ioctl(struct tty_struct *tty, struct file *file,
 		}));
 		break;
 
-		/*
-		 * Get counter of input serial line interrupts (DCD,RI,DSR,CTS)
-		 * Return: write counters to the user passed counter struct
-		 * NB: both 1->0 and 0->1 transitions are counted except for
-		 *     RI where only 0->1 is counted.
-		 */
-	case TIOCGICOUNT:
-		spin_lock_irqsave(&info->card->card_lock, flags);
-		cnow = info->icount;
-		spin_unlock_irqrestore(&info->card->card_lock, flags);
-		p_cuser = argp;
-		ret_val = put_user(cnow.cts, &p_cuser->cts);
-		if (ret_val)
-			return ret_val;
-		ret_val = put_user(cnow.dsr, &p_cuser->dsr);
-		if (ret_val)
-			return ret_val;
-		ret_val = put_user(cnow.rng, &p_cuser->rng);
-		if (ret_val)
-			return ret_val;
-		ret_val = put_user(cnow.dcd, &p_cuser->dcd);
-		if (ret_val)
-			return ret_val;
-		ret_val = put_user(cnow.rx, &p_cuser->rx);
-		if (ret_val)
-			return ret_val;
-		ret_val = put_user(cnow.tx, &p_cuser->tx);
-		if (ret_val)
-			return ret_val;
-		ret_val = put_user(cnow.frame, &p_cuser->frame);
-		if (ret_val)
-			return ret_val;
-		ret_val = put_user(cnow.overrun, &p_cuser->overrun);
-		if (ret_val)
-			return ret_val;
-		ret_val = put_user(cnow.parity, &p_cuser->parity);
-		if (ret_val)
-			return ret_val;
-		ret_val = put_user(cnow.brk, &p_cuser->brk);
-		if (ret_val)
-			return ret_val;
-		ret_val = put_user(cnow.buf_overrun, &p_cuser->buf_overrun);
-		if (ret_val)
-			return ret_val;
-		ret_val = 0;
-		break;
 	default:
 		ret_val = -ENOIOCTLCMD;
 	}
@@ -4031,6 +3985,31 @@ cy_ioctl(struct tty_struct *tty, struct file *file,
 
 	return ret_val;
 }				/* cy_ioctl */
+
+static int cy_get_icount(struct tty_struct *tty,
+				struct serial_icounter_struct *sic)
+{
+	struct cyclades_port *info = tty->driver_data;
+	struct cyclades_icount cnow;	/* Used to snapshot */
+	unsigned long flags;
+
+	spin_lock_irqsave(&info->card->card_lock, flags);
+	cnow = info->icount;
+	spin_unlock_irqrestore(&info->card->card_lock, flags);
+
+	sic->cts = cnow.cts;
+	sic->dsr = cnow.dsr;
+	sic->rng = cnow.rng;
+	sic->dcd = cnow.dcd;
+	sic->rx = cnow.rx;
+	sic->tx = cnow.tx;
+	sic->frame = cnow.frame;
+	sic->overrun = cnow.overrun;
+	sic->parity = cnow.parity;
+	sic->brk = cnow.brk;
+	sic->buf_overrun = cnow.buf_overrun;
+	return 0;
+}
 
 /*
  * This routine allows the tty driver to be notified when
@@ -5312,6 +5291,7 @@ static const struct tty_operations cy_ops = {
 	.read_proc = cyclades_get_proc_info,
 	.tiocmget = cy_tiocmget,
 	.tiocmset = cy_tiocmset,
+	.get_icount = cy_get_icount,
 };
 
 static int __init cy_init(void)

@@ -184,8 +184,6 @@ static void free(void *where);
 static void *memset(void *s, int c, unsigned n);
 static void *memcpy(void *dest, const void *src, unsigned n);
 
-static void putstr(const char *);
-
 static long free_mem_ptr;
 static long free_mem_end_ptr;
 
@@ -228,7 +226,8 @@ static void gzip_release(void **ptr)
 {
 	free_mem_ptr = (long) *ptr;
 }
- 
+
+#ifdef CONFIG_WRAPPER_PRINT 
 static void scroll(void)
 {
 	int i;
@@ -269,11 +268,14 @@ static void putstr(const char *s)
 	RM_SCREEN_INFO.orig_y = y;
 
 	pos = (x + cols * y) * 2;	/* Update cursor position */
-	outb_p(14, vidport);
-	outb_p(0xff & (pos >> 9), vidport+1);
-	outb_p(15, vidport);
-	outb_p(0xff & (pos >> 1), vidport+1);
+	outb(14, vidport);
+	outb(0xff & (pos >> 9), vidport+1);
+	outb(15, vidport);
+	outb(0xff & (pos >> 1), vidport+1);
 }
+#else
+#define putstr(__x) do{}while(0)
+#endif /* CONFIG_WRAPPER_PRINT */
 
 static void* memset(void* s, int c, unsigned n)
 {

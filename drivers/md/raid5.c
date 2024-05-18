@@ -2348,25 +2348,15 @@ static void handle_issuing_new_write_requests6(raid5_conf_t *conf,
 static void handle_parity_checks5(raid5_conf_t *conf, struct stripe_head *sh,
 				struct stripe_head_state *s, int disks)
 {
-	set_bit(STRIPE_HANDLE, &sh->state);
-	/* Take one of the following actions:
-	 * 1/ start a check parity operation if (uptodate == disks)
-	 * 2/ finish a check parity operation and act on the result
-	 * 3/ skip to the writeback section if we previously
-	 *    initiated a recovery operation
-	 */
-	if (s->failed == 0 &&
-	    !test_bit(STRIPE_OP_MOD_REPAIR_PD, &sh->ops.pending)) {
-		if (!test_and_set_bit(STRIPE_OP_CHECK, &sh->ops.pending)) {
-			BUG_ON(s->uptodate != disks);
-			clear_bit(R5_UPTODATE, &sh->dev[sh->pd_idx].flags);
-			sh->ops.count++;
-			s->uptodate--;
-		} else if (
-		       test_and_clear_bit(STRIPE_OP_CHECK, &sh->ops.complete)) {
-			clear_bit(STRIPE_OP_CHECK, &sh->ops.ack);
-			clear_bit(STRIPE_OP_CHECK, &sh->ops.pending);
+	int canceled_check = 0;
 
+	set_bit(STRIPE_HANDLE, &sh->state);
+
+	/* complete a check operation */
+	if (test_and_clear_bit(STRIPE_OP_CHECK, &sh->ops.complete)) {
+	    clear_bit(STRIPE_OP_CHECK, &sh->ops.ack);
+	    clear_bit(STRIPE_OP_CHECK, &sh->ops.pending);
+		if (s->failed == 0) {
 			if (sh->ops.zero_sum_result == 0)
 				/* parity is correct (on disc,
 				 * not in buffer any more)
@@ -2391,7 +2381,8 @@ static void handle_parity_checks5(raid5_conf_t *conf, struct stripe_head *sh,
 					s->uptodate++;
 				}
 			}
-		}
+		} else
+			canceled_check = 1; /* STRIPE_INSYNC is not set */
 	}
 
 	/* check if we can clear a parity disk reconstruct */
@@ -2404,12 +2395,28 @@ static void handle_parity_checks5(raid5_conf_t *conf, struct stripe_head *sh,
 		clear_bit(STRIPE_OP_COMPUTE_BLK, &sh->ops.pending);
 	}
 
-	/* Wait for check parity and compute block operations to complete
-	 * before write-back
+	/* start a new check operation if there are no failures, the stripe is
+	 * not insync, and a repair is not in flight
 	 */
-	if (!test_bit(STRIPE_INSYNC, &sh->state) &&
-		!test_bit(STRIPE_OP_CHECK, &sh->ops.pending) &&
-		!test_bit(STRIPE_OP_COMPUTE_BLK, &sh->ops.pending)) {
+	if (s->failed == 0 &&
+	    !test_bit(STRIPE_INSYNC, &sh->state) &&
+	    !test_bit(STRIPE_OP_MOD_REPAIR_PD, &sh->ops.pending)) {
+		if (!test_and_set_bit(STRIPE_OP_CHECK, &sh->ops.pending)) {
+			BUG_ON(s->uptodate != disks);
+			clear_bit(R5_UPTODATE, &sh->dev[sh->pd_idx].flags);
+			sh->ops.count++;
+			s->uptodate--;
+		}
+	}
+
+	/* Wait for check parity and compute block operations to complete
+	 * before write-back.  If a failure occurred while the check operation
+	 * was in flight we need to cycle this stripe through handle_stripe
+	 * since the parity block may not be uptodate
+	 */
+	if (!canceled_check && !test_bit(STRIPE_INSYNC, &sh->state) &&
+	    !test_bit(STRIPE_OP_CHECK, &sh->ops.pending) &&
+	    !test_bit(STRIPE_OP_COMPUTE_BLK, &sh->ops.pending)) {
 		struct r5dev *dev;
 		/* either failed parity check, or recovery is happening */
 		if (s->failed == 0)
@@ -3159,7 +3166,8 @@ static void raid5_activate_delayed(raid5_conf_t *conf)
 				atomic_inc(&conf->preread_active_stripes);
 			list_add_tail(&sh->lru, &conf->handle_list);
 		}
-	}
+	} else
+		blk_plug_device(conf->mddev->queue);
 }
 
 static void activate_bit_delay(raid5_conf_t *conf)
@@ -3549,7 +3557,8 @@ static int make_request(struct request_queue *q, struct bio * bi)
 				goto retry;
 			}
 			finish_wait(&conf->wait_for_overlap, &w);
-			handle_stripe(sh, NULL);
+			set_bit(STRIPE_HANDLE, &sh->state);
+			clear_bit(STRIPE_DELAYED, &sh->state);
 			release_stripe(sh);
 		} else {
 			/* cannot get stripe for read-ahead, just give-up */
@@ -3864,7 +3873,7 @@ static int  retry_aligned_read(raid5_conf_t *conf, struct bio *raid_bio)
  * During the scan, completed stripes are saved for us by the interrupt
  * handler, so that they will not have to wait for our next wakeup.
  */
-static void raid5d (mddev_t *mddev)
+static void raid5d(mddev_t *mddev)
 {
 	struct stripe_head *sh;
 	raid5_conf_t *conf = mddev_to_conf(mddev);
@@ -3888,12 +3897,6 @@ static void raid5d (mddev_t *mddev)
 			conf->seq_write = seq;
 			activate_bit_delay(conf);
 		}
-
-		if (list_empty(&conf->handle_list) &&
-		    atomic_read(&conf->preread_active_stripes) < IO_THRESHOLD &&
-		    !blk_queue_plugged(mddev->queue) &&
-		    !list_empty(&conf->delayed_list))
-			raid5_activate_delayed(conf);
 
 		while ((bio = remove_bio_from_retry(conf))) {
 			int ok;

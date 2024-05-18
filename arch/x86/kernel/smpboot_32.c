@@ -405,7 +405,7 @@ static void __cpuinit start_secondary(void *unused)
 	setup_secondary_clock();
 	if (nmi_watchdog == NMI_IO_APIC) {
 		disable_8259A_irq(0);
-		enable_NMI_through_LVT0(NULL);
+		enable_NMI_through_LVT0();
 		enable_8259A_irq(0);
 	}
 	/*
@@ -882,6 +882,11 @@ static int __cpuinit do_boot_cpu(int apicid, int cpu)
 	/* mark "stuck" area as not stuck */
 	*((volatile unsigned long *)trampoline_base) = 0;
 
+	/*
+	 * Cleanup possible dangling ends...
+	 */
+	smpboot_restore_warm_reset_vector();
+
 	return boot_error;
 }
 
@@ -1081,11 +1086,6 @@ static void __init smp_boot_cpus(unsigned int max_cpus)
 		else
 			++kicked;
 	}
-
-	/*
-	 * Cleanup possible dangling ends...
-	 */
-	smpboot_restore_warm_reset_vector();
 
 	/*
 	 * Allow the user to impress friends.

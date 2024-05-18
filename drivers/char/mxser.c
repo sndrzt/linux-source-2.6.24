@@ -448,6 +448,9 @@ static int CheckIsMoxaMust(int io)
 
 /* above is modified by Victor Yu. 08-15-2002 */
 
+static int mxser_get_icount(struct tty_struct *tty,
+		struct serial_icounter_struct *icount);
+
 static const struct tty_operations mxser_ops = {
 	.open = mxser_open,
 	.close = mxser_close,
@@ -468,6 +471,7 @@ static const struct tty_operations mxser_ops = {
 	.wait_until_sent = mxser_wait_until_sent,
 	.tiocmget = mxser_tiocmget,
 	.tiocmset = mxser_tiocmset,
+	.get_icount = mxser_get_icount,
 };
 
 /*
@@ -1352,37 +1356,6 @@ static int mxser_ioctl(struct tty_struct *tty, struct file *file, unsigned int c
 			((arg & TIOCM_CTS) && (cnow.cts != cprev.cts));
 		}));
 		break;
-		/*
-		 * Get counter of input serial line interrupts (DCD,RI,DSR,CTS)
-		 * Return: write counters to the user passed counter struct
-		 * NB: both 1->0 and 0->1 transitions are counted except for
-		 *     RI where only 0->1 is counted.
-		 */
-	case TIOCGICOUNT:
-		spin_lock_irqsave(&info->slock, flags);
-		cnow = info->icount;
-		spin_unlock_irqrestore(&info->slock, flags);
-		p_cuser = argp;
-		/* modified by casper 1/11/2000 */
-		if (put_user(cnow.frame, &p_cuser->frame))
-			return -EFAULT;
-		if (put_user(cnow.brk, &p_cuser->brk))
-			return -EFAULT;
-		if (put_user(cnow.overrun, &p_cuser->overrun))
-			return -EFAULT;
-		if (put_user(cnow.buf_overrun, &p_cuser->buf_overrun))
-			return -EFAULT;
-		if (put_user(cnow.parity, &p_cuser->parity))
-			return -EFAULT;
-		if (put_user(cnow.rx, &p_cuser->rx))
-			return -EFAULT;
-		if (put_user(cnow.tx, &p_cuser->tx))
-			return -EFAULT;
-		put_user(cnow.cts, &p_cuser->cts);
-		put_user(cnow.dsr, &p_cuser->dsr);
-		put_user(cnow.rng, &p_cuser->rng);
-		put_user(cnow.dcd, &p_cuser->dcd);
-		return 0;
 	case MOXA_HighSpeedOn:
 		return put_user(info->baud_base != 115200 ? 1 : 0, (int __user *)argp);
 	case MOXA_SDS_RSTICOUNTER: {
@@ -1622,6 +1595,39 @@ static int mxser_ioctl_special(unsigned int cmd, void __user *argp)
 	default:
 		return -ENOIOCTLCMD;
 	}
+	return 0;
+}
+
+	/*
+	 * Get counter of input serial line interrupts (DCD,RI,DSR,CTS)
+	 * Return: write counters to the user passed counter struct
+	 * NB: both 1->0 and 0->1 transitions are counted except for
+	 *     RI where only 0->1 is counted.
+	 */
+
+static int mxser_get_icount(struct tty_struct *tty,
+		struct serial_icounter_struct *icount)
+
+{
+	struct mxser_port *info = tty->driver_data;
+	struct async_icount cnow;
+	unsigned long flags;
+
+	spin_lock_irqsave(&info->slock, flags);
+	cnow = info->icount;
+	spin_unlock_irqrestore(&info->slock, flags);
+
+	icount->frame = cnow.frame;
+	icount->brk = cnow.brk;
+	icount->overrun = cnow.overrun;
+	icount->buf_overrun = cnow.buf_overrun;
+	icount->parity = cnow.parity;
+	icount->rx = cnow.rx;
+	icount->tx = cnow.tx;
+	icount->cts = cnow.cts;
+	icount->dsr = cnow.dsr;
+	icount->rng = cnow.rng;
+	icount->dcd = cnow.dcd;
 	return 0;
 }
 

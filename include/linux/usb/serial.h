@@ -243,6 +243,8 @@ struct usb_serial_driver {
 	void (*unthrottle)	(struct usb_serial_port *port);
 	int  (*tiocmget)	(struct usb_serial_port *port, struct file *file);
 	int  (*tiocmset)	(struct usb_serial_port *port, struct file *file, unsigned int set, unsigned int clear);
+	int  (*get_icount)(struct tty_struct *tty,
+			struct serial_icounter_struct *icount);
 
 	void (*read_int_callback)(struct urb *urb);
 	void (*write_int_callback)(struct urb *urb);

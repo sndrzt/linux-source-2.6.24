@@ -688,7 +688,7 @@ static ssize_t sock_sendpage(struct file *file, struct page *page,
 	if (more)
 		flags |= MSG_MORE;
 
-	return sock->ops->sendpage(sock, page, offset, size, flags);
+	return kernel_sendpage(sock, page, offset, size, flags);
 }
 
 static struct sock_iocb *alloc_sock_iocb(struct kiocb *iocb,
@@ -1583,6 +1583,9 @@ asmlinkage long sys_sendto(int fd, void __user *buff, size_t len,
 	int fput_needed;
 	struct file *sock_file;
 
+	if (len > INT_MAX)
+		len = INT_MAX;
+
 	sock_file = fget_light(fd, &fput_needed);
 	err = -EBADF;
 	if (!sock_file)
@@ -1643,6 +1646,9 @@ asmlinkage long sys_recvfrom(int fd, void __user *ubuf, size_t size,
 	int err, err2;
 	struct file *sock_file;
 	int fput_needed;
+
+	if (size > INT_MAX)
+		size = INT_MAX;
 
 	sock_file = fget_light(fd, &fput_needed);
 	err = -EBADF;

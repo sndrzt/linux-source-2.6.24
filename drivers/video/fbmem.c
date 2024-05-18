@@ -1315,6 +1315,10 @@ fb_open(struct inode *inode, struct file *file)
 		if (res)
 			module_put(info->fbops->owner);
 	}
+#ifdef CONFIG_FB_DEFERRED_IO
+	if (info->fbdefio)
+		fb_deferred_io_open(info, inode, file);
+#endif
 	return res;
 }
 
@@ -1521,6 +1525,7 @@ module_init(fbmem_init);
 static void __exit
 fbmem_exit(void)
 {
+	remove_proc_entry("fb", NULL);
 	class_destroy(fb_class);
 	unregister_chrdev(FB_MAJOR, "fb");
 }

@@ -388,8 +388,8 @@ enum _mii_mssr {
 	MII_MSSR_CFG_RES = 0x4000,
 	MII_MSSR_LOCAL_RCV_STATUS = 0x2000,
 	MII_MSSR_REMOTE_RCVR = 0x1000,
-	MII_MSSR_LP_1000BT_HD = 0x0800,
-	MII_MSSR_LP_1000BT_FD = 0x0400,
+	MII_MSSR_LP_1000BT_FD = 0x0800,
+	MII_MSSR_LP_1000BT_HD = 0x0400,
 	MII_MSSR_IDLE_ERR_COUNT = 0x00ff,
 };
 
@@ -469,13 +469,6 @@ struct ioctl_data {
 	int cmd;
 	int len;
 	char *data;
-};
-
-struct mii_data {
-	__u16 reserved;
-	__u16 reg_num;
-	__u16 in_value;
-	__u16 out_value;
 };
 
 /* The Rx and Tx buffer descriptors. */

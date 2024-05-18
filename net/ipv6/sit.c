@@ -395,9 +395,9 @@ static int ipip6_rcv(struct sk_buff *skb)
 	}
 
 	icmp_send(skb, ICMP_DEST_UNREACH, ICMP_PORT_UNREACH, 0);
-	kfree_skb(skb);
 	read_unlock(&ipip6_lock);
 out:
+	kfree_skb(skb);
 	return 0;
 }
 
@@ -827,29 +827,30 @@ static int __init sit_init(void)
 
 	printk(KERN_INFO "IPv6 over IPv4 tunneling driver\n");
 
-	if (xfrm4_tunnel_register(&sit_handler, AF_INET6) < 0) {
-		printk(KERN_INFO "sit init: Can't add protocol\n");
-		return -EAGAIN;
-	}
-
 	ipip6_fb_tunnel_dev = alloc_netdev(sizeof(struct ip_tunnel), "sit0",
 					   ipip6_tunnel_setup);
 	if (!ipip6_fb_tunnel_dev) {
 		err = -ENOMEM;
-		goto err1;
+		goto out;
 	}
 
 	ipip6_fb_tunnel_dev->init = ipip6_fb_tunnel_init;
 
-	if ((err =  register_netdev(ipip6_fb_tunnel_dev)))
+	if ((err = register_netdev(ipip6_fb_tunnel_dev)))
+		goto err1;
+
+	if (xfrm4_tunnel_register(&sit_handler, AF_INET6) < 0) {
+		printk(KERN_INFO "sit init: Can't add protocol\n");
+		err = -EAGAIN;
 		goto err2;
+	}
 
  out:
 	return err;
  err2:
-	free_netdev(ipip6_fb_tunnel_dev);
+	unregister_netdev(ipip6_fb_tunnel_dev);
  err1:
-	xfrm4_tunnel_deregister(&sit_handler, AF_INET6);
+	free_netdev(ipip6_fb_tunnel_dev);
 	goto out;
 }
 

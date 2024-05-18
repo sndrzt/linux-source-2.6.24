@@ -222,6 +222,24 @@ out:
 	return NULL;
 }
 
+struct mm_struct *mm_for_maps2(struct task_struct *task)
+{
+	struct mm_struct *mm = get_task_mm(task);
+	if (!mm)
+		return NULL;
+	task_lock(task);
+	if (task->mm != mm)
+		goto out;
+	if (task->mm != current->mm && __ptrace_may_attach(task) < 0)
+		goto out;
+	task_unlock(task);
+	return mm;
+out:
+	task_unlock(task);
+	mmput(mm);
+	return NULL;
+}
+
 static int proc_pid_cmdline(struct task_struct *task, char * buffer)
 {
 	int res = 0;
@@ -262,7 +280,7 @@ out:
 static int proc_pid_auxv(struct task_struct *task, char *buffer)
 {
 	int res = 0;
-	struct mm_struct *mm = get_task_mm(task);
+	struct mm_struct *mm = mm_for_maps2(task);
 	if (mm) {
 		unsigned int nwords = 0;
 		do
@@ -291,7 +309,10 @@ static int proc_pid_wchan(struct task_struct *task, char *buffer)
 	wchan = get_wchan(task);
 
 	if (lookup_symbol_name(wchan, symname) < 0)
-		return sprintf(buffer, "%lu", wchan);
+		if (!ptrace_may_attach(task))
+			return 0;
+		else
+			return sprintf(buffer, "%lu", wchan);
 	else
 		return sprintf(buffer, "%s", symname);
 }
@@ -308,6 +329,79 @@ static int proc_pid_schedstat(struct task_struct *task, char *buffer)
 			task->sched_info.run_delay,
 			task->sched_info.pcount);
 }
+#endif
+
+#ifdef CONFIG_LATENCYTOP
+static int lstats_show_proc(struct seq_file *m, void *v)
+{
+	int i;
+	struct task_struct *task = m->private;
+	seq_puts(m, "Latency Top version : v0.1\n");
+
+	for (i = 0; i < 32; i++) {
+		if (task->latency_record[i].backtrace[0]) {
+			int q;
+			seq_printf(m, "%i %li %li ",
+				task->latency_record[i].count,
+				task->latency_record[i].time,
+				task->latency_record[i].max);
+			for (q = 0; q < LT_BACKTRACEDEPTH; q++) {
+				char sym[KSYM_NAME_LEN];
+				char *c;
+				if (!task->latency_record[i].backtrace[q])
+					break;
+				if (task->latency_record[i].backtrace[q]
+								== ULONG_MAX)
+					break;
+				sprint_symbol(sym,
+					task->latency_record[i].backtrace[q]);
+				c = strchr(sym, '+');
+				if (c)
+					*c = 0;
+				seq_printf(m, "%s ", sym);
+			}
+			seq_printf(m, "\n");
+		}
+
+	}
+	return 0;
+}
+
+static int lstats_open(struct inode *inode, struct file *file)
+{
+	int ret;
+	struct seq_file *m;
+	struct task_struct *task = get_proc_task(inode);
+
+	ret = single_open(file, lstats_show_proc, NULL);
+	if (!ret) {
+		m = file->private_data;
+		m->private = task;
+	}
+	return ret;
+}
+
+static ssize_t lstats_write(struct file *file, const char __user *buf,
+			    size_t count, loff_t *offs)
+{
+	struct seq_file *m;
+	struct task_struct *task;
+
+	m = file->private_data;
+	task = m->private;
+	clear_all_latency_tracing(task);
+
+	return count;
+}
+
+static const struct file_operations proc_lstats_operations = {
+	.open		= lstats_open,
+	.read		= seq_read,
+	.write		= lstats_write,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+};
+
 #endif
 
 /* The badness from the OOM killer */
@@ -751,9 +845,6 @@ static ssize_t environ_read(struct file *file, char __user *buf,
 	if (!task)
 		goto out_no_task;
 
-	if (!ptrace_may_attach(task))
-		goto out;
-
 	ret = -ENOMEM;
 	page = (char *)__get_free_page(GFP_TEMPORARY);
 	if (!page)
@@ -761,7 +852,7 @@ static ssize_t environ_read(struct file *file, char __user *buf,
 
 	ret = 0;
 
-	mm = get_task_mm(task);
+	mm = mm_for_maps2(task);
 	if (!mm)
 		goto out_free;
 
@@ -2165,6 +2256,9 @@ static int proc_base_fill_cache(struct file *filp, void *dirent,
 #ifdef CONFIG_TASK_IO_ACCOUNTING
 static int proc_pid_io_accounting(struct task_struct *task, char *buffer)
 {
+	if (!ptrace_may_attach(task))
+		return -EACCES;
+
 	return sprintf(buffer,
 #ifdef CONFIG_TASK_XACCT
 			"rchar: %llu\n"
@@ -2230,6 +2324,9 @@ static const struct pid_entry tgid_base_stuff[] = {
 #ifdef CONFIG_SCHEDSTATS
 	INF("schedstat",  S_IRUGO, pid_schedstat),
 #endif
+#ifdef CONFIG_LATENCYTOP
+	REG("latency",  S_IRUGO, lstats),
+#endif
 #ifdef CONFIG_PROC_PID_CPUSET
 	REG("cpuset",     S_IRUGO, cpuset),
 #endif
@@ -2248,7 +2345,7 @@ static const struct pid_entry tgid_base_stuff[] = {
 	REG("coredump_filter", S_IRUGO|S_IWUSR, coredump_filter),
 #endif
 #ifdef CONFIG_TASK_IO_ACCOUNTING
-	INF("io",	S_IRUGO, pid_io_accounting),
+	INF("io",	S_IRUSR, pid_io_accounting),
 #endif
 };
 
@@ -2484,11 +2581,16 @@ static int proc_pid_fill_cache(struct file *filp, void *dirent, filldir_t filldi
 /* for the /proc/ directory itself, after non-process stuff has been done */
 int proc_pid_readdir(struct file * filp, void * dirent, filldir_t filldir)
 {
-	unsigned int nr = filp->f_pos - FIRST_PROCESS_ENTRY;
-	struct task_struct *reaper = get_proc_task(filp->f_path.dentry->d_inode);
+	unsigned int nr;
+	struct task_struct *reaper;
 	struct tgid_iter iter;
 	struct pid_namespace *ns;
 
+	if (filp->f_pos >= PID_MAX_LIMIT + TGID_OFFSET)
+		goto out_no_task;
+	nr = filp->f_pos - FIRST_PROCESS_ENTRY;
+
+	reaper = get_proc_task(filp->f_path.dentry->d_inode);
 	if (!reaper)
 		goto out_no_task;
 
@@ -2554,6 +2656,9 @@ static const struct pid_entry tid_base_stuff[] = {
 #endif
 #ifdef CONFIG_SCHEDSTATS
 	INF("schedstat", S_IRUGO, pid_schedstat),
+#endif
+#ifdef CONFIG_LATENCYTOP
+	REG("latency",  S_IRUGO, lstats),
 #endif
 #ifdef CONFIG_PROC_PID_CPUSET
 	REG("cpuset",    S_IRUGO, cpuset),

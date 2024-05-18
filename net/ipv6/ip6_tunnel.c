@@ -550,6 +550,7 @@ ip4ip6_err(struct sk_buff *skb, struct inet6_skb_parm *opt,
 			ip_rt_put(rt);
 			goto out;
 		}
+		skb2->dst = (struct dst_entry *)rt;
 	} else {
 		ip_rt_put(rt);
 		if (ip_route_input(skb2, eiph->daddr, eiph->saddr, eiph->tos,
@@ -1395,10 +1396,22 @@ static int __init ip6_tunnel_init(void)
 {
 	int  err;
 
+	ip6_fb_tnl_dev = alloc_netdev(sizeof(struct ip6_tnl), "ip6tnl0",
+				      ip6_tnl_dev_setup);
+	if (!ip6_fb_tnl_dev) {
+		err = -ENOMEM;
+		goto out;
+	}
+	ip6_fb_tnl_dev->init = ip6_fb_tnl_dev_init;
+
+	if ((err = register_netdev(ip6_fb_tnl_dev))) {
+		goto free_netdev;
+	}
+
 	if (xfrm6_tunnel_register(&ip4ip6_handler, AF_INET)) {
 		printk(KERN_ERR "ip6_tunnel init: can't register ip4ip6\n");
 		err = -EAGAIN;
-		goto out;
+		goto unreg_netdev;
 	}
 
 	if (xfrm6_tunnel_register(&ip6ip6_handler, AF_INET6)) {
@@ -1406,24 +1419,13 @@ static int __init ip6_tunnel_init(void)
 		err = -EAGAIN;
 		goto unreg_ip4ip6;
 	}
-	ip6_fb_tnl_dev = alloc_netdev(sizeof(struct ip6_tnl), "ip6tnl0",
-				      ip6_tnl_dev_setup);
-
-	if (!ip6_fb_tnl_dev) {
-		err = -ENOMEM;
-		goto fail;
-	}
-	ip6_fb_tnl_dev->init = ip6_fb_tnl_dev_init;
-
-	if ((err = register_netdev(ip6_fb_tnl_dev))) {
-		free_netdev(ip6_fb_tnl_dev);
-		goto fail;
-	}
 	return 0;
-fail:
-	xfrm6_tunnel_deregister(&ip6ip6_handler, AF_INET6);
 unreg_ip4ip6:
 	xfrm6_tunnel_deregister(&ip4ip6_handler, AF_INET);
+unreg_netdev:
+	unregister_netdev(ip6_fb_tnl_dev);
+free_netdev:
+	free_netdev(ip6_fb_tnl_dev);
 out:
 	return err;
 }

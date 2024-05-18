@@ -241,7 +241,7 @@ static unsigned int __init tsc_calibrate_cpu_khz(void)
 	rdtscl(tsc_start);
 	do {
 		rdmsrl(MSR_K7_PERFCTR0 + i, pmc_now);
-		tsc_now = get_cycles_sync();
+		tsc_now = get_cycles();
 	} while ((tsc_now - tsc_start) < TICK_COUNT);
 
 	local_irq_restore(flags);
@@ -278,6 +278,8 @@ void __init time_init(void)
 		boot_cpu_data.x86_vendor == X86_VENDOR_AMD &&
 		boot_cpu_data.x86 == 16)
 		cpu_khz = tsc_calibrate_cpu_khz();
+
+	lpj_tsc = ((unsigned long)tsc_khz * 1000)/HZ;
 
 	if (unsynchronized_tsc())
 		mark_tsc_unstable("TSCs unsynchronized");

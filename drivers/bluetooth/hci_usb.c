@@ -132,6 +132,13 @@ static struct usb_device_id blacklist_ids[] = {
 
 	/* Dell laptop with Broadcom chip */
 	{ USB_DEVICE(0x413c, 0x8126), .driver_info = HCI_RESET | HCI_WRONG_SCO_MTU },
+	/* Dell Wireless 370 */
+	{ USB_DEVICE(0x413c, 0x8156), .driver_info = HCI_RESET | HCI_WRONG_SCO_MTU },
+	/* Dell Wireless 410 */
+	{ USB_DEVICE(0x413c, 0x8152), .driver_info = HCI_RESET | HCI_WRONG_SCO_MTU },
+        
+        /* Broadcom 2046 */
+        { USB_DEVICE(0x0a5c, 0x2151), .driver_info = HCI_RESET },
 
 	/* Microsoft Wireless Transceiver for Bluetooth 2.0 */
 	{ USB_DEVICE(0x045e, 0x009c), .driver_info = HCI_RESET },
@@ -144,6 +151,7 @@ static struct usb_device_id blacklist_ids[] = {
 	{ USB_DEVICE(0x1131, 0x1001), .driver_info = HCI_RESET },
 
 	/* RTX Telecom based adapters with buggy SCO support */
+	{ USB_DEVICE(0x0e5e, 0x6622), .driver_info = HCI_BROKEN_ISOC },
 	{ USB_DEVICE(0x0400, 0x0807), .driver_info = HCI_BROKEN_ISOC },
 	{ USB_DEVICE(0x0400, 0x080a), .driver_info = HCI_BROKEN_ISOC },
 
@@ -1019,8 +1027,10 @@ static int hci_usb_suspend(struct usb_interface *intf, pm_message_t message)
 		while ((_urb = _urb_dequeue(q))) {
 			/* reset queue since _urb_dequeue sets it to NULL */
 			_urb->queue = q;
-			usb_kill_urb(&_urb->urb);
+			spin_lock_irqsave(&q->lock, flags);
 			list_add(&_urb->list, &killed);
+			spin_unlock_irqrestore(&q->lock, flags);
+			usb_kill_urb(&_urb->urb);
 		}
 
 		spin_lock_irqsave(&q->lock, flags);

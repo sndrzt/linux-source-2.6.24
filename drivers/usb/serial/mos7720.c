@@ -1487,6 +1487,9 @@ static int mos7720_ioctl(struct usb_serial_port *port, struct file *file,
 
 	case TIOCGICOUNT:
 		cnow = mos7720_port->icount;
+
+		memset(&icount, 0, sizeof(struct serial_icounter_struct));
+
 		icount.cts = cnow.cts;
 		icount.dsr = cnow.dsr;
 		icount.rng = cnow.rng;

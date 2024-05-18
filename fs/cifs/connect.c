@@ -1316,10 +1316,34 @@ cifs_parse_mount_options(char *options, const char *devname,
 	return 0;
 }
 
+int __username_password_chk(struct cifsSesInfo *ses, struct smb_vol *vol)
+{
+	struct TCP_Server_Info *server = ses->server;
+
+	switch (server->secType) {
+	case Kerberos:
+		if (vol->linux_uid != ses->linux_uid)
+			return 0;
+		break;
+	default:
+		/* anything else takes username/password */
+		if (strncmp(ses->userName, vol->username,
+			    MAX_USERNAME_SIZE))
+			return 0;
+		if (strlen(vol->username) != 0 &&
+		    ses->password != NULL &&
+		    strncmp(ses->password,
+			    vol->password ? vol->password : "",
+			    MAX_PASSWORD_SIZE))
+			return 0;
+	}
+	return 1;
+}
+
 static struct cifsSesInfo *
 cifs_find_tcp_session(struct in_addr *target_ip_addr,
 		struct in6_addr *target_ip6_addr,
-		 char *userName, struct TCP_Server_Info **psrvTcp)
+		struct smb_vol *vol, struct TCP_Server_Info **psrvTcp)
 {
 	struct list_head *tmp;
 	struct cifsSesInfo *ses;
@@ -1341,9 +1365,7 @@ cifs_find_tcp_session(struct in_addr *target_ip_addr,
 				*psrvTcp = ses->server;
 
 				/* BB check if reconnection needed */
-				if (strncmp
-				    (ses->userName, userName,
-				     MAX_USERNAME_SIZE) == 0){
+				if (__username_password_chk(ses, vol)) {
 					read_unlock(&GlobalSMBSeslock);
 					/* Found exact match on both TCP and
 					   SMB sessions */
@@ -1882,12 +1904,12 @@ cifs_mount(struct super_block *sb, struct cifs_sb_info *cifs_sb,
 	if (address_type == AF_INET)
 		existingCifsSes = cifs_find_tcp_session(&sin_server.sin_addr,
 			NULL /* no ipv6 addr */,
-			volume_info.username, &srvTcp);
+			&volume_info, &srvTcp);
 	else if (address_type == AF_INET6) {
 		cFYI(1, ("looking for ipv6 address"));
 		existingCifsSes = cifs_find_tcp_session(NULL /* no ipv4 addr */,
 			&sin_server6.sin6_addr,
-			volume_info.username, &srvTcp);
+			&volume_info, &srvTcp);
 	} else {
 		rc = -EINVAL;
 		goto out;
@@ -2178,7 +2200,7 @@ cifs_mount(struct super_block *sb, struct cifs_sb_info *cifs_sb,
 						if (tsk)
 							kthread_stop(tsk);
 					}
-				} else {
+				} else if (atomic_read(&srvTcp->socketUseCount) == 0) {
 					cFYI(1, ("No session or bad tcon"));
 					if ((pSesInfo->server) &&
 					    (pSesInfo->server->tsk)) {
@@ -3421,7 +3443,7 @@ CIFSTCon(unsigned int xid, struct cifsSesInfo *ses,
 			    BCC(smb_buffer_response)) {
 				kfree(tcon->nativeFileSystem);
 				tcon->nativeFileSystem =
-				    kzalloc(length + 2, GFP_KERNEL);
+				    kzalloc(2*(length + 1), GFP_KERNEL);
 				if (tcon->nativeFileSystem)
 					cifs_strfromUCS_le(
 						tcon->nativeFileSystem,

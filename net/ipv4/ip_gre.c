@@ -1268,28 +1268,30 @@ static int __init ipgre_init(void)
 
 	printk(KERN_INFO "GRE over IPv4 tunneling driver\n");
 
-	if (inet_add_protocol(&ipgre_protocol, IPPROTO_GRE) < 0) {
-		printk(KERN_INFO "ipgre init: can't add protocol\n");
-		return -EAGAIN;
-	}
-
 	ipgre_fb_tunnel_dev = alloc_netdev(sizeof(struct ip_tunnel), "gre0",
 					   ipgre_tunnel_setup);
 	if (!ipgre_fb_tunnel_dev) {
 		err = -ENOMEM;
-		goto err1;
+		goto out;;
 	}
 
 	ipgre_fb_tunnel_dev->init = ipgre_fb_tunnel_init;
 
 	if ((err = register_netdev(ipgre_fb_tunnel_dev)))
+		goto err1;
+
+	if (inet_add_protocol(&ipgre_protocol, IPPROTO_GRE) < 0) {
+		printk(KERN_INFO "ipgre init: can't add protocol\n");
+		err = -EAGAIN;
 		goto err2;
+	}
+
 out:
 	return err;
 err2:
-	free_netdev(ipgre_fb_tunnel_dev);
+	unregister_netdev(ipgre_fb_tunnel_dev);
 err1:
-	inet_del_protocol(&ipgre_protocol, IPPROTO_GRE);
+	free_netdev(ipgre_fb_tunnel_dev);
 	goto out;
 }
 

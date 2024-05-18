@@ -167,7 +167,7 @@ struct b43_dmadesc_generic {
 /* DMA engine tuning knobs */
 #define B43_TXRING_SLOTS		128
 #define B43_RXRING_SLOTS		64
-#define B43_DMA0_RX_BUFFERSIZE	(2304 + 100)
+#define B43_DMA0_RX_BUFFERSIZE		(B43_DMA0_RX_FRAMEOFFSET + IEEE80211_MAX_FRAME_LEN)
 #define B43_DMA3_RX_BUFFERSIZE	16
 
 #ifdef CONFIG_B43_DMA

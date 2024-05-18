@@ -59,6 +59,7 @@
 #include <asm/sections.h>
 #include <asm/dmi.h>
 #include <asm/cacheflush.h>
+#include <asm/hypervisor.h>
 
 /*
  * Machine setup..
@@ -310,6 +311,14 @@ void __init setup_arch(char **cmdline_p)
 	init_memory_mapping(0, (end_pfn_map << PAGE_SHIFT));
 
 	dmi_scan_machine();
+
+	/*
+	 * VMware detection requires dmi to be available, so this
+	 * needs to be done after dmi_scan_machine, for the BP.
+	 */
+	init_hypervisor(&boot_cpu_data);
+
+	io_delay_init();
 
 #ifdef CONFIG_SMP
 	/* setup to use the static apicid table during kernel startup */
@@ -679,8 +688,8 @@ static void __cpuinit init_amd(struct cpuinfo_x86 *c)
 	if (c->x86 == 0xf || c->x86 == 0x10 || c->x86 == 0x11)
 		set_bit(X86_FEATURE_K8, &c->x86_capability);
 
-	/* RDTSC can be speculated around */
-	clear_bit(X86_FEATURE_SYNC_RDTSC, &c->x86_capability);
+	/* MFENCE stops RDTSC speculation */
+	set_bit(X86_FEATURE_MFENCE_RDTSC, &c->x86_capability);
 
 	/* Family 10 doesn't support C states in MWAIT so don't use it */
 	if (c->x86 == 0x10 && !force_mwait)
@@ -814,10 +823,7 @@ static void __cpuinit init_intel(struct cpuinfo_x86 *c)
 		set_bit(X86_FEATURE_CONSTANT_TSC, &c->x86_capability);
 	if (c->x86 == 6)
 		set_bit(X86_FEATURE_REP_GOOD, &c->x86_capability);
-	if (c->x86 == 15)
-		set_bit(X86_FEATURE_SYNC_RDTSC, &c->x86_capability);
-	else
-		clear_bit(X86_FEATURE_SYNC_RDTSC, &c->x86_capability);
+	set_bit(X86_FEATURE_LFENCE_RDTSC, &c->x86_capability);
  	c->x86_max_cores = intel_num_cpu_cores(c);
 
 	srat_detect_node();
@@ -956,6 +962,8 @@ void __cpuinit identify_cpu(struct cpuinfo_x86 *c)
 
 	select_idle_routine(c);
 	detect_ht(c); 
+
+	init_hypervisor(c);
 
 	/*
 	 * On SMP, boot_cpu_data holds the common feature set between

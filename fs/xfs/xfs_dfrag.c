@@ -82,6 +82,13 @@ xfs_swapext(
 		goto error0;
 	}
 
+	if (!(fp->f_mode & FMODE_WRITE) ||
+	    !(fp->f_mode & FMODE_READ) ||
+	    (fp->f_flags & O_APPEND)) {
+		error = XFS_ERROR(EBADF);
+		goto error0;
+	}
+
 	if (((tfp = fget((int)sxp->sx_fdtmp)) == NULL) ||
 	    ((tvp = vn_from_inode(tfp->f_path.dentry->d_inode)) == NULL)) {
 		error = XFS_ERROR(EINVAL);
@@ -90,6 +97,13 @@ xfs_swapext(
 
 	tip = xfs_vtoi(tvp);
 	if (tip == NULL) {
+		error = XFS_ERROR(EBADF);
+		goto error0;
+	}
+
+	if (!(tfp->f_mode & FMODE_WRITE) ||
+	    !(tfp->f_mode & FMODE_READ) ||
+	    (tfp->f_flags & O_APPEND)) {
 		error = XFS_ERROR(EBADF);
 		goto error0;
 	}

@@ -39,6 +39,8 @@ enum pci_bf_sort_state {
 	pci_dmi_bf,
 };
 
+extern void __init dmi_check_pciprobe(void);
+
 /* pci-i386.c */
 
 extern unsigned int pcibios_max_latency;
@@ -98,13 +100,6 @@ extern void pcibios_sort(void);
 
 /* pci-mmconfig.c */
 
-/* Verify the first 16 busses. We assume that systems with more busses
-   get MCFG right. */
-#define PCI_MMCFG_MAX_CHECK_BUS 16
-extern DECLARE_BITMAP(pci_mmcfg_fallback_slots, 32*PCI_MMCFG_MAX_CHECK_BUS);
-
-extern int __init pci_mmcfg_arch_reachable(unsigned int seg, unsigned int bus,
-					   unsigned int devfn);
 extern int __init pci_mmcfg_arch_init(void);
 
 /*

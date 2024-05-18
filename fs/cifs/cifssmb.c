@@ -1582,6 +1582,14 @@ CIFSSMBWrite(const int xid, struct cifsTconInfo *tcon,
 		*nbytes = le16_to_cpu(pSMBr->CountHigh);
 		*nbytes = (*nbytes) << 16;
 		*nbytes += le16_to_cpu(pSMBr->Count);
+
+		/*
+		 * Mask off high 16 bits when bytes written as returned by the
+		 * server is greater than bytes requested by the client. Some
+		 * OS/2 servers are known to set incorrect CountHigh values.
+		 */
+		if (*nbytes > count)
+			*nbytes &= 0xFFFF;
 	}
 
 	cifs_buf_release(pSMB);
@@ -1667,6 +1675,14 @@ CIFSSMBWrite2(const int xid, struct cifsTconInfo *tcon,
 		*nbytes = le16_to_cpu(pSMBr->CountHigh);
 		*nbytes = (*nbytes) << 16;
 		*nbytes += le16_to_cpu(pSMBr->Count);
+
+		/*
+		 * Mask off high 16 bits when bytes written as returned by the
+		 * server is greater than bytes requested by the client. OS/2
+		 * servers are known to set incorrect CountHigh values.
+		 */
+		if (*nbytes > count)
+			*nbytes &= 0xFFFF;
 	}
 
 /*	cifs_small_buf_release(pSMB); */ /* Freed earlier now in SendReceive2 */
@@ -3635,7 +3651,8 @@ int CIFSFindNext(const int xid, struct cifsTconInfo *tcon,
 	T2_FNEXT_RSP_PARMS * parms;
 	char *response_data;
 	int rc = 0;
-	int bytes_returned, name_len;
+	int bytes_returned;
+	unsigned int name_len;
 	__u16 params, byte_count;
 
 	cFYI(1, ("In FindNext"));
@@ -4026,9 +4043,15 @@ getDFSRetry:
 				   not fall off end PDU */
 			}
 			/* BB add check for name_len bigger than bcc */
-			*targetUNCs =
-				kmalloc(name_len+1+(*number_of_UNC_in_array),
-					GFP_KERNEL);
+			if (pSMBr->hdr.Flags2 & SMBFLG2_UNICODE) {
+				*targetUNCs = kmalloc((4 * name_len + 2) +
+						      (*number_of_UNC_in_array),
+						      GFP_KERNEL);
+			} else {
+				*targetUNCs = kmalloc(name_len + 1 +
+						      (*number_of_UNC_in_array),
+						      GFP_KERNEL);
+			}
 			if (*targetUNCs == NULL) {
 				rc = -ENOMEM;
 				goto GetDFSRefExit;
@@ -4042,18 +4065,21 @@ getDFSRetry:
 				temp = ((char *)referrals) +
 					  le16_to_cpu(referrals->DfsPathOffset);
 				if (pSMBr->hdr.Flags2 & SMBFLG2_UNICODE) {
-					cifs_strfromUCS_le(*targetUNCs,
-							  (__le16 *) temp,
-							  name_len,
-							  nls_codepage);
+					int l;
+
+					l = cifs_strfromUCS_le(*targetUNCs,
+							       (__le16 *) temp,
+							       name_len,
+							       nls_codepage);
+					(*targetUNCs)[l + 1] = 0;
 				} else {
-					strncpy(*targetUNCs, temp, name_len);
+					strlcpy(*targetUNCs, temp,
+						name_len + 1);
 				}
 				/*  BB update target_uncs pointers */
 				referrals++;
 			}
 			temp = *targetUNCs;
-			temp[name_len] = 0;
 		}
 
 	}

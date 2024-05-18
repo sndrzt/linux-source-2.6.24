@@ -92,7 +92,7 @@ xfs_trans_iget(
 	 * xfs_iget().
 	 */
 	if (tp == NULL)
-		return xfs_iget(mp, NULL, ino, flags, lock_flags, ipp, 0);
+		return xfs_iget(mp, NULL, ino, flags, lock_flags, ipp);
 
 	/*
 	 * If we find the inode in core with this transaction
@@ -132,7 +132,7 @@ xfs_trans_iget(
 	}
 
 	ASSERT(lock_flags & XFS_ILOCK_EXCL);
-	error = xfs_iget(tp->t_mountp, tp, ino, flags, lock_flags, &ip, 0);
+	error = xfs_iget(tp->t_mountp, tp, ino, flags, lock_flags, &ip);
 	if (error) {
 		return error;
 	}

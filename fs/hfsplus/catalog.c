@@ -168,6 +168,11 @@ int hfsplus_find_cat(struct super_block *sb, u32 cnid,
 		return -EIO;
 	}
 
+	if (be16_to_cpu(tmp.thread.nodeName.length) > 255) {
+		printk(KERN_ERR "hfs: catalog name length corrupted\n");
+		return -EIO;
+	}
+
 	hfsplus_cat_build_key_uni(fd->search_key, be32_to_cpu(tmp.thread.parentID),
 				 &tmp.thread.nodeName);
 	return hfs_brec_find(fd);
@@ -324,6 +329,10 @@ int hfsplus_rename_cat(u32 cnid,
 	err = hfs_brec_find(&src_fd);
 	if (err)
 		goto out;
+	if (src_fd.entrylength > sizeof(entry) || src_fd.entrylength < 0) {
+		err = -EIO;
+		goto out;
+	}
 
 	hfs_bnode_read(src_fd.bnode, &entry, src_fd.entryoffset,
 				src_fd.entrylength);

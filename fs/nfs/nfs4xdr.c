@@ -967,7 +967,7 @@ static void encode_share_access(struct xdr_stream *xdr, int open_flags)
 			WRITE32(NFS4_SHARE_ACCESS_BOTH);
 			break;
 		default:
-			BUG();
+			WRITE32(0);
 	}
 	WRITE32(0);		/* for linux, share_deny = 0 always */
 }

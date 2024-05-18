@@ -540,6 +540,18 @@ static int serial_tiocmset (struct tty_struct *tty, struct file *file,
 	return -EINVAL;
 }
 
+static int serial_get_icount(struct tty_struct *tty,
+				struct serial_icounter_struct *icount)
+{
+	struct usb_serial_port *port = tty->driver_data;
+
+	dbg("%s - port %d", __func__, port->number);
+
+	if (port->serial->type->get_icount)
+		return port->serial->type->get_icount(tty, icount);
+	return -EINVAL;
+}
+
 /*
  * We would be calling tty_wakeup here, but unfortunately some line
  * disciplines have an annoying habit of calling tty->write from
@@ -844,6 +856,7 @@ int usb_serial_probe(struct usb_interface *interface,
 	serial->num_interrupt_in = num_interrupt_in;
 	serial->num_interrupt_out = num_interrupt_out;
 
+#if 0
 	/* check that the device meets the driver's requirements */
 	if ((type->num_interrupt_in != NUM_DONT_CARE &&
 				type->num_interrupt_in != num_interrupt_in)
@@ -857,6 +870,7 @@ int usb_serial_probe(struct usb_interface *interface,
 		kfree(serial);
 		return -EIO;
 	}
+#endif
 
 	/* found all that we need */
 	dev_info(&interface->dev, "%s converter detected\n",
@@ -1143,6 +1157,7 @@ static const struct tty_operations serial_ops = {
 	.read_proc =		serial_read_proc,
 	.tiocmget =		serial_tiocmget,
 	.tiocmset =		serial_tiocmset,
+	.get_icount = 		serial_get_icount,
 };
 
 struct tty_driver *usb_serial_tty_driver;

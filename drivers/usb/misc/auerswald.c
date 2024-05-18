@@ -1945,13 +1945,23 @@ static int auerswald_probe (struct usb_interface *intf,
 	/* Try to get a suitable textual description of the device */
 	/* Device name:*/
 	ret = usb_string( cp->usbdev, AUSI_DEVICE, cp->dev_desc, AUSI_DLEN-1);
-	if (ret >= 0) {
+	/*
+	 * If we were successful, and there is room remaining for a serial
+	 * number then look it up and append it.  Assume the serial number
+	 * is at least 4 digits.
+	 */
+	if (ret >= 0 && ret < AUSI_DLEN-1-6-4) {
 		u += ret;
 		/* Append Serial Number */
 		memcpy(&cp->dev_desc[u], ",Ser# ", 6);
 		u += 6;
 		ret = usb_string( cp->usbdev, AUSI_SERIALNR, &cp->dev_desc[u], AUSI_DLEN-u-1);
-		if (ret >= 0) {
+		/*
+		 * If we were successful and there is room remaining for
+		 * the subscriber prefix then look it up and append it.
+		 * Assume the subscriber number is at least 1 digit.
+		 */
+		if (ret >= 0 && ret < AUSI_DLEN-u-1-2-1) {
 			u += ret;
 			/* Append subscriber number */
 			memcpy(&cp->dev_desc[u], ", ", 2);

@@ -10,6 +10,8 @@
 
 #include <asm/hpet.h>
 #include <asm/timex.h>
+#include <asm/vgtod.h>
+#include <asm/hypervisor.h>
 
 static int notsc __initdata = 0;
 
@@ -133,12 +135,12 @@ static unsigned long __init tsc_read_refs(unsigned long *pm,
 	int i;
 
 	for (i = 0; i < MAX_RETRIES; i++) {
-		t1 = get_cycles_sync();
+		t1 = get_cycles();
 		if (hpet)
 			*hpet = hpet_readl(HPET_COUNTER) & 0xFFFFFFFF;
 		else
 			*pm = acpi_pm_read_early();
-		t2 = get_cycles_sync();
+		t2 = get_cycles();
 		if ((t2 - t1) < SMI_TRESHOLD)
 			return t2;
 	}
@@ -151,7 +153,17 @@ static unsigned long __init tsc_read_refs(unsigned long *pm,
 void __init tsc_calibrate(void)
 {
 	unsigned long flags, tsc1, tsc2, tr1, tr2, pm1, pm2, hpet1, hpet2;
+	unsigned long hypervisor_tsc_khz;
 	int hpet = is_hpet_enabled();
+
+	hypervisor_tsc_khz = get_hypervisor_tsc_freq();
+	if (hypervisor_tsc_khz) {
+		tsc_khz = hypervisor_tsc_khz;
+		set_cyc2ns_scale(tsc_khz);
+		printk(KERN_INFO "TSC: Frequency read from the hypervisor is "
+			"%d.%03d MHz\n", tsc_khz / 1000, tsc_khz % 1000);
+		return;
+	}
 
 	local_irq_save(flags);
 
@@ -162,9 +174,9 @@ void __init tsc_calibrate(void)
 	outb(0xb0, 0x43);
 	outb((CLOCK_TICK_RATE / (1000 / 50)) & 0xff, 0x42);
 	outb((CLOCK_TICK_RATE / (1000 / 50)) >> 8, 0x42);
-	tr1 = get_cycles_sync();
+	tr1 = get_cycles();
 	while ((inb(0x61) & 0x20) == 0);
-	tr2 = get_cycles_sync();
+	tr2 = get_cycles();
 
 	tsc2 = tsc_read_refs(&pm2, hpet ? &hpet2 : NULL);
 
@@ -222,6 +234,9 @@ __cpuinit int unsynchronized_tsc(void)
 	if (apic_is_clustered_box())
 		return 1;
 #endif
+	if (boot_cpu_has(X86_FEATURE_TSC_RELIABLE))
+		return 0;
+
 	/* Most intel systems have synchronized TSCs except for
 	   multi node systems */
 	if (boot_cpu_data.x86_vendor == X86_VENDOR_INTEL) {
@@ -246,18 +261,34 @@ int __init notsc_setup(char *s)
 
 __setup("notsc", notsc_setup);
 
+static struct clocksource clocksource_tsc;
 
-/* clock source code: */
+/*
+ * We compare the TSC to the cycle_last value in the clocksource
+ * structure to avoid a nasty time-warp. This can be observed in a
+ * very small window right after one CPU updated cycle_last under
+ * xtime/vsyscall_gtod lock and the other CPU reads a TSC value which
+ * is smaller than the cycle_last reference value due to a TSC which
+ * is slighty behind. This delta is nowhere else observable, but in
+ * that case it results in a forward time jump in the range of hours
+ * due to the unsigned delta calculation of the time keeping core
+ * code, which is necessary to support wrapping clocksources like pm
+ * timer.
+ */
 static cycle_t read_tsc(void)
 {
-	cycle_t ret = (cycle_t)get_cycles_sync();
-	return ret;
+	cycle_t ret = (cycle_t)get_cycles();
+
+	return ret >= clocksource_tsc.cycle_last ?
+		ret : clocksource_tsc.cycle_last;
 }
 
 static cycle_t __vsyscall_fn vread_tsc(void)
 {
-	cycle_t ret = (cycle_t)get_cycles_sync();
-	return ret;
+	cycle_t ret = (cycle_t)vget_cycles();
+
+	return ret >= __vsyscall_gtod_data.clock.cycle_last ?
+		ret : __vsyscall_gtod_data.clock.cycle_last;
 }
 
 static struct clocksource clocksource_tsc = {
@@ -288,6 +319,9 @@ EXPORT_SYMBOL_GPL(mark_tsc_unstable);
 void __init init_tsc_clocksource(void)
 {
 	if (!notsc) {
+		if (boot_cpu_has(X86_FEATURE_TSC_RELIABLE))
+			clocksource_tsc.flags &= ~CLOCK_SOURCE_MUST_VERIFY;
+
 		clocksource_tsc.mult = clocksource_khz2mult(tsc_khz,
 							clocksource_tsc.shift);
 		if (check_tsc_unstable())

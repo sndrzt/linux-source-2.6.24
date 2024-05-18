@@ -46,7 +46,7 @@ static __cpuinit void check_tsc_warp(void)
 	cycles_t start, now, prev, end;
 	int i;
 
-	start = get_cycles_sync();
+	start = get_cycles();
 	/*
 	 * The measurement runs for 20 msecs:
 	 */
@@ -61,7 +61,7 @@ static __cpuinit void check_tsc_warp(void)
 		 */
 		__raw_spin_lock(&sync_lock);
 		prev = last_tsc;
-		now = get_cycles_sync();
+		now = get_cycles();
 		last_tsc = now;
 		__raw_spin_unlock(&sync_lock);
 
@@ -105,6 +105,12 @@ void __cpuinit check_tsc_sync_source(int cpu)
 	 */
 	if (unsynchronized_tsc())
 		return;
+
+	if (boot_cpu_has(X86_FEATURE_TSC_RELIABLE)) {
+		printk(KERN_INFO
+			"Skipping synchronization checks as TSC is reliable.\n");
+		return;
+	}
 
 	printk(KERN_INFO "checking TSC synchronization [CPU#%d -> CPU#%d]:",
 			  smp_processor_id(), cpu);
@@ -159,7 +165,7 @@ void __cpuinit check_tsc_sync_target(void)
 {
 	int cpus = 2;
 
-	if (unsynchronized_tsc())
+	if (unsynchronized_tsc() || boot_cpu_has(X86_FEATURE_TSC_RELIABLE))
 		return;
 
 	/*

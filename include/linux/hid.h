@@ -267,10 +267,10 @@ struct hid_item {
 #define HID_QUIRK_2WHEEL_MOUSE_HACK_5		0x00000100
 #define HID_QUIRK_2WHEEL_MOUSE_HACK_ON		0x00000200
 #define HID_QUIRK_MIGHTYMOUSE			0x00000400
-#define HID_QUIRK_POWERBOOK_HAS_FN		0x00000800
-#define HID_QUIRK_POWERBOOK_FN_ON		0x00001000
+#define HID_QUIRK_APPLE_HAS_FN			0x00000800
+#define HID_QUIRK_APPLE_FN_ON			0x00001000
 #define HID_QUIRK_INVERT_HWHEEL			0x00002000
-#define HID_QUIRK_POWERBOOK_ISO_KEYBOARD        0x00004000
+#define HID_QUIRK_APPLE_ISO_KEYBOARD		0x00004000
 #define HID_QUIRK_BAD_RELATIVE_KEYS		0x00008000
 #define HID_QUIRK_SKIP_OUTPUT_REPORTS		0x00010000
 #define HID_QUIRK_IGNORE_MOUSE			0x00020000
@@ -281,6 +281,8 @@ struct hid_item {
 #define HID_QUIRK_LOGITECH_IGNORE_DOUBLED_WHEEL	0x00400000
 #define HID_QUIRK_LOGITECH_EXPANDED_KEYMAP	0x00800000
 #define HID_QUIRK_IGNORE_HIDINPUT		0x01000000
+#define HID_QUIRK_2WHEEL_MOUSE_HACK_B8		0x02000000
+#define HID_QUIRK_APPLE_NUMLOCK_EMULATION	0x20000000
 
 /*
  * Separate quirks for runtime report descriptor fixup
@@ -456,6 +458,8 @@ struct hid_device {							/* device report descriptor */
 
 	void *driver_data;
 
+	__s32 delayed_value;						/* For A4 Tech mice hwheel quirk */
+
 	/* device-specific function pointers */
 	int (*hidinput_input_event) (struct input_dev *, unsigned int, unsigned int, int);
 	int (*hid_open) (struct hid_device *);
@@ -469,7 +473,7 @@ struct hid_device {							/* device report descriptor */
 	/* handler for raw output data, used by hidraw */
 	int (*hid_output_raw_report) (struct hid_device *, __u8 *, size_t);
 #ifdef CONFIG_USB_HIDINPUT_POWERBOOK
-	unsigned long pb_pressed_fn[BITS_TO_LONGS(KEY_CNT)];
+	unsigned long apple_pressed_fn[BITS_TO_LONGS(KEY_CNT)];
 	unsigned long pb_pressed_numlock[BITS_TO_LONGS(KEY_CNT)];
 #endif
 };

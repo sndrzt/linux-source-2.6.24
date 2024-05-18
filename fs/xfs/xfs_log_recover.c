@@ -3214,7 +3214,7 @@ xlog_recover_process_iunlinks(
 				xfs_buf_relse(agibp);
 
 				ino = XFS_AGINO_TO_INO(mp, agno, agino);
-				error = xfs_iget(mp, NULL, ino, 0, 0, &ip, 0);
+				error = xfs_iget(mp, NULL, ino, 0, 0, &ip);
 				ASSERT(error || (ip != NULL));
 
 				if (!error) {
@@ -3223,7 +3223,7 @@ xlog_recover_process_iunlinks(
 					 * next inode in the bucket.
 					 */
 					error = xfs_itobp(mp, NULL, ip, &dip,
-							&ibp, 0, 0);
+							&ibp, 0);
 					ASSERT(error || (dip != NULL));
 				}
 

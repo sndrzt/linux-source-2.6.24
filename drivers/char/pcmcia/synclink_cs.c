@@ -2263,6 +2263,32 @@ static void mgslpc_break(struct tty_struct *tty, int break_state)
 	spin_unlock_irqrestore(&info->lock,flags);
 }
 
+static int mgslpc_get_icount(struct tty_struct *tty,
+				struct serial_icounter_struct *icount)
+{
+	MGSLPC_INFO * info = (MGSLPC_INFO *)tty->driver_data;
+	struct mgsl_icount cnow;	/* kernel counter temps */
+	unsigned long flags;
+
+	spin_lock_irqsave(&info->lock,flags);
+	cnow = info->icount;
+	spin_unlock_irqrestore(&info->lock,flags);
+
+	icount->cts = cnow.cts;
+	icount->dsr = cnow.dsr;
+	icount->rng = cnow.rng;
+	icount->dcd = cnow.dcd;
+	icount->rx = cnow.rx;
+	icount->tx = cnow.tx;
+	icount->frame = cnow.frame;
+	icount->overrun = cnow.overrun;
+	icount->parity = cnow.parity;
+	icount->brk = cnow.brk;
+	icount->buf_overrun = cnow.buf_overrun;
+
+	return 0;
+}
+
 /* Service an IOCTL request
  *
  * Arguments:
@@ -2287,7 +2313,7 @@ static int mgslpc_ioctl(struct tty_struct *tty, struct file * file,
 		return -ENODEV;
 
 	if ((cmd != TIOCGSERIAL) && (cmd != TIOCSSERIAL) &&
-	    (cmd != TIOCMIWAIT) && (cmd != TIOCGICOUNT)) {
+	    (cmd != TIOCMIWAIT)) {
 		if (tty->flags & (1 << TTY_IO_ERROR))
 		    return -EIO;
 	}
@@ -2328,34 +2354,6 @@ static int ioctl_common(MGSLPC_INFO *info, unsigned int cmd, unsigned long arg)
 		return wait_events(info, argp);
 	case TIOCMIWAIT:
 		return modem_input_wait(info,(int)arg);
-	case TIOCGICOUNT:
-		spin_lock_irqsave(&info->lock,flags);
-		cnow = info->icount;
-		spin_unlock_irqrestore(&info->lock,flags);
-		p_cuser = argp;
-		PUT_USER(error,cnow.cts, &p_cuser->cts);
-		if (error) return error;
-		PUT_USER(error,cnow.dsr, &p_cuser->dsr);
-		if (error) return error;
-		PUT_USER(error,cnow.rng, &p_cuser->rng);
-		if (error) return error;
-		PUT_USER(error,cnow.dcd, &p_cuser->dcd);
-		if (error) return error;
-		PUT_USER(error,cnow.rx, &p_cuser->rx);
-		if (error) return error;
-		PUT_USER(error,cnow.tx, &p_cuser->tx);
-		if (error) return error;
-		PUT_USER(error,cnow.frame, &p_cuser->frame);
-		if (error) return error;
-		PUT_USER(error,cnow.overrun, &p_cuser->overrun);
-		if (error) return error;
-		PUT_USER(error,cnow.parity, &p_cuser->parity);
-		if (error) return error;
-		PUT_USER(error,cnow.brk, &p_cuser->brk);
-		if (error) return error;
-		PUT_USER(error,cnow.buf_overrun, &p_cuser->buf_overrun);
-		if (error) return error;
-		return 0;
 	default:
 		return -ENOIOCTLCMD;
 	}

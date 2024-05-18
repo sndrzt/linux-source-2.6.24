@@ -78,6 +78,7 @@
 #include <linux/rcupdate.h>
 #include <linux/delayacct.h>
 #include <linux/pid_namespace.h>
+#include <linux/ptrace.h>
 
 #include <asm/pgtable.h>
 #include <asm/processor.h>
@@ -396,6 +397,7 @@ static int do_task_stat(struct task_struct *task, char *buffer, int whole)
 	int res;
 	pid_t ppid = 0, pgid = -1, sid = -1;
 	int num_threads = 0;
+	int permitted;
 	struct mm_struct *mm;
 	unsigned long long start_time;
 	unsigned long cmin_flt = 0, cmaj_flt = 0;
@@ -411,11 +413,14 @@ static int do_task_stat(struct task_struct *task, char *buffer, int whole)
 
 	state = *get_task_state(task);
 	vsize = eip = esp = 0;
+	permitted = ptrace_may_attach(task);
 	mm = get_task_mm(task);
 	if (mm) {
 		vsize = task_vsize(mm);
-		eip = KSTK_EIP(task);
-		esp = KSTK_ESP(task);
+		if (permitted) {
+			eip = KSTK_EIP(task);
+			esp = KSTK_ESP(task);
+		}
 	}
 
 	get_task_comm(tcomm, task);
@@ -471,7 +476,7 @@ static int do_task_stat(struct task_struct *task, char *buffer, int whole)
 	}
 	rcu_read_unlock();
 
-	if (!whole || num_threads < 2)
+	if (permitted && (!whole || num_threads < 2))
 		wchan = get_wchan(task);
 	if (!whole) {
 		min_flt = task->min_flt;
@@ -521,9 +526,9 @@ static int do_task_stat(struct task_struct *task, char *buffer, int whole)
 		vsize,
 		mm ? get_mm_rss(mm) : 0,
 		rsslim,
-		mm ? mm->start_code : 0,
-		mm ? mm->end_code : 0,
-		mm ? mm->start_stack : 0,
+		mm ? (permitted ? mm->start_code : 1) : 0,
+		mm ? (permitted ? mm->end_code : 1) : 0,
+		(permitted && mm) ? mm->start_stack : 0,
 		esp,
 		eip,
 		/* The signal information here is obsolete.

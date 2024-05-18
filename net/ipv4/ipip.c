@@ -863,29 +863,31 @@ static int __init ipip_init(void)
 
 	printk(banner);
 
-	if (xfrm4_tunnel_register(&ipip_handler, AF_INET)) {
-		printk(KERN_INFO "ipip init: can't register tunnel\n");
-		return -EAGAIN;
-	}
-
 	ipip_fb_tunnel_dev = alloc_netdev(sizeof(struct ip_tunnel),
 					   "tunl0",
 					   ipip_tunnel_setup);
 	if (!ipip_fb_tunnel_dev) {
 		err = -ENOMEM;
-		goto err1;
+		goto out;
 	}
 
 	ipip_fb_tunnel_dev->init = ipip_fb_tunnel_init;
 
 	if ((err = register_netdev(ipip_fb_tunnel_dev)))
+		goto err1;
+
+	if (xfrm4_tunnel_register(&ipip_handler, AF_INET)) {
+		printk(KERN_INFO "ipip init: can't register tunnel\n");
+		err = -EAGAIN;
 		goto err2;
+	}
+
  out:
 	return err;
  err2:
-	free_netdev(ipip_fb_tunnel_dev);
+	unregister_netdev(ipip_fb_tunnel_dev);
  err1:
-	xfrm4_tunnel_deregister(&ipip_handler, AF_INET);
+	free_netdev(ipip_fb_tunnel_dev);
 	goto out;
 }
 

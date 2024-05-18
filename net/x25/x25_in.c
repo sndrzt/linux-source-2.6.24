@@ -93,6 +93,7 @@ static int x25_state1_machine(struct sock *sk, struct sk_buff *skb, int frametyp
 	switch (frametype) {
 		case X25_CALL_ACCEPTED: {
 			struct x25_sock *x25 = x25_sk(sk);
+			int len;
 
 			x25_stop_timer(sk);
 			x25->condition = 0x00;
@@ -107,10 +108,12 @@ static int x25_state1_machine(struct sock *sk, struct sk_buff *skb, int frametyp
 			 */
 			skb_pull(skb, X25_STD_MIN_LEN);
 			skb_pull(skb, x25_addr_ntoa(skb->data, &source_addr, &dest_addr));
-			skb_pull(skb,
-				 x25_parse_facilities(skb, &x25->facilities,
-						&x25->dte_facilities,
-						&x25->vc_facil_mask));
+			len = x25_parse_facilities(skb, &x25->facilities,
+				&x25->dte_facilities, &x25->vc_facil_mask);
+			if (len <= 0)
+				return 0;
+			skb_pull(skb, len);
+
 			/*
 			 *	Copy any Call User Data.
 			 */

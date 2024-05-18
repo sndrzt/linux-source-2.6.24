@@ -118,11 +118,18 @@
  *
  * 	This routine is used to send a high-priority XON/XOFF
  * 	character to the device.
+ *
+ * int (*get_icount)(struct tty_struct *tty, struct serial_icounter *icount);
+ *
+ *	Called when the device receives a TIOCGICOUNT ioctl. Passed a kernel
+ *	structure to complete. This method is optional and will only be called
+ *	if provided (otherwise EINVAL will be returned).
  */
 
 #include <linux/fs.h>
 #include <linux/list.h>
 #include <linux/cdev.h>
+#include <linux/serial.h> /* for serial_state and serial_icounter_struct */
 
 struct tty_struct;
 
@@ -157,6 +164,8 @@ struct tty_operations {
 	int (*tiocmget)(struct tty_struct *tty, struct file *file);
 	int (*tiocmset)(struct tty_struct *tty, struct file *file,
 			unsigned int set, unsigned int clear);
+	int (*get_icount)(struct tty_struct *tty,
+				struct serial_icounter_struct *icount);
 };
 
 struct tty_driver {
@@ -220,6 +229,8 @@ struct tty_driver {
 	int (*tiocmget)(struct tty_struct *tty, struct file *file);
 	int (*tiocmset)(struct tty_struct *tty, struct file *file,
 			unsigned int set, unsigned int clear);
+	int (*get_icount)(struct tty_struct *tty,
+				struct serial_icounter_struct *icount);
 
 	struct list_head tty_drivers;
 };

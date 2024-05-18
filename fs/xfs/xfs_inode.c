@@ -245,7 +245,6 @@ xfs_itobp(
 	xfs_inode_t	*ip,
 	xfs_dinode_t	**dipp,
 	xfs_buf_t	**bpp,
-	xfs_daddr_t	bno,
 	uint		imap_flags)
 {
 	xfs_imap_t	imap;
@@ -259,7 +258,6 @@ xfs_itobp(
 		 * Call the space management code to find the location of the
 		 * inode on disk.
 		 */
-		imap.im_blkno = bno;
 		if ((error = xfs_imap(mp, tp, ip->i_ino, &imap,
 					XFS_IMAP_LOOKUP | imap_flags)))
 			return error;
@@ -301,7 +299,6 @@ xfs_itobp(
 		imap.im_len = ip->i_len;
 		imap.im_boffset = ip->i_boffset;
 	}
-	ASSERT(bno == 0 || bno == imap.im_blkno);
 
 	/*
 	 * Read in the buffer.  If tp is NULL, xfs_trans_read_buf() will
@@ -344,7 +341,7 @@ xfs_itobp(
 		if (unlikely(XFS_TEST_ERROR(!di_ok, mp,
 						XFS_ERRTAG_ITOBP_INOTOBP,
 						XFS_RANDOM_ITOBP_INOTOBP))) {
-			if (imap_flags & XFS_IMAP_BULKSTAT) {
+			if (imap_flags & XFS_IGET_UNTRUSTED) {
 				xfs_trans_brelse(tp, bp);
 				return XFS_ERROR(EINVAL);
 			}
@@ -851,7 +848,6 @@ xfs_iread(
 	xfs_trans_t	*tp,
 	xfs_ino_t	ino,
 	xfs_inode_t	**ipp,
-	xfs_daddr_t	bno,
 	uint		imap_flags)
 {
 	xfs_buf_t	*bp;
@@ -874,7 +870,7 @@ xfs_iread(
 	 * return NULL as well.  Set i_blkno to 0 so that xfs_itobp() will
 	 * know that this is a new incore inode.
 	 */
-	error = xfs_itobp(mp, tp, ip, &dip, &bp, bno, imap_flags);
+	error = xfs_itobp(mp, tp, ip, &dip, &bp, imap_flags);
 	if (error) {
 		kmem_zone_free(xfs_inode_zone, ip);
 		return error;
@@ -1959,7 +1955,7 @@ xfs_iunlink(
 	ASSERT(agi->agi_unlinked[bucket_index]);
 	ASSERT(be32_to_cpu(agi->agi_unlinked[bucket_index]) != agino);
 
-	error = xfs_itobp(mp, tp, ip, &dip, &ibp, 0, 0);
+	error = xfs_itobp(mp, tp, ip, &dip, &ibp, 0);
 	if (error)
 		return error;
 
@@ -2088,7 +2084,7 @@ xfs_iunlink_remove(
 		 * of dealing with the buffer when there is no need to
 		 * change it.
 		 */
-		error = xfs_itobp(mp, tp, ip, &dip, &ibp, 0, 0);
+		error = xfs_itobp(mp, tp, ip, &dip, &ibp, 0);
 		if (error) {
 			cmn_err(CE_WARN,
 				"xfs_iunlink_remove: xfs_itobp()  returned an error %d on %s.  Returning error.",
@@ -2150,7 +2146,7 @@ xfs_iunlink_remove(
 		 * Now last_ibp points to the buffer previous to us on
 		 * the unlinked list.  Pull us from the list.
 		 */
-		error = xfs_itobp(mp, tp, ip, &dip, &ibp, 0, 0);
+		error = xfs_itobp(mp, tp, ip, &dip, &ibp, 0);
 		if (error) {
 			cmn_err(CE_WARN,
 				"xfs_iunlink_remove: xfs_itobp()  returned an error %d on %s.  Returning error.",
@@ -3126,7 +3122,7 @@ xfs_iflush(
 	/*
 	 * Get the buffer containing the on-disk inode.
 	 */
-	error = xfs_itobp(mp, NULL, ip, &dip, &bp, 0, 0);
+	error = xfs_itobp(mp, NULL, ip, &dip, &bp, 0);
 	if (error) {
 		xfs_ifunlock(ip);
 		return error;

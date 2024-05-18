@@ -94,6 +94,7 @@
 #include <linux/wait.h>
 #include <linux/bitops.h>
 #include <linux/delay.h>
+#include <linux/serial.h>
 
 #include <asm/uaccess.h>
 #include <asm/system.h>
@@ -2271,6 +2272,8 @@ static void release_one_tty(struct tty_struct *tty, int idx)
 	list_del_init(&tty->tty_files);
 	file_list_unlock();
 
+	put_pid(tty->pgrp);
+	put_pid(tty->session);
 	free_tty_struct(tty);
 }
 
@@ -3300,6 +3303,20 @@ static int tty_tiocmset(struct tty_struct *tty, struct file *file, unsigned int 
 	return retval;
 }
 
+static int tty_tiocgicount(struct tty_struct *tty, void __user *arg)
+{
+	int retval = -EINVAL;
+	struct serial_icounter_struct icount;
+	memset(&icount, 0, sizeof(icount));
+	if (tty->driver->get_icount)
+		retval = tty->driver->get_icount(tty, &icount);
+	if (retval != 0)
+		return retval;
+	if (copy_to_user(arg, &icount, sizeof(icount)))
+		return -EFAULT;
+	return 0;
+}
+
 /*
  * Split this up, as gcc can choke on it otherwise..
  */
@@ -3433,6 +3450,12 @@ int tty_ioctl(struct inode * inode, struct file * file,
 		case TIOCMBIC:
 		case TIOCMBIS:
 			return tty_tiocmset(tty, file, cmd, p);
+		case TIOCGICOUNT:
+			retval = tty_tiocgicount(tty, p);
+			/* For the moment allow fall through to the old method */
+			if (retval != -EINVAL)
+				return retval;
+			break;
 		case TCFLSH:
 			switch (arg) {
 			case TCIFLUSH:
@@ -3847,6 +3870,7 @@ void tty_set_operations(struct tty_driver *driver,
 	driver->write_proc = op->write_proc;
 	driver->tiocmget = op->tiocmget;
 	driver->tiocmset = op->tiocmset;
+	driver->get_icount = op->get_icount;
 }
 
 

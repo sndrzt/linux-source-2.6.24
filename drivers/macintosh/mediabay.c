@@ -447,6 +447,7 @@ int check_media_bay_by_base(unsigned long base, int what)
 	
 	return -ENODEV;
 }
+EXPORT_SYMBOL(check_media_bay_by_base);
 
 int media_bay_set_ide_infos(struct device_node* which_bay, unsigned long base,
 	int irq, int index)
@@ -487,6 +488,7 @@ int media_bay_set_ide_infos(struct device_node* which_bay, unsigned long base,
 	
 	return -ENODEV;
 }
+EXPORT_SYMBOL(media_bay_set_ide_infos);
 
 static void media_bay_step(int i)
 {
@@ -709,7 +711,8 @@ static int media_bay_suspend(struct macio_dev *mdev, pm_message_t state)
 {
 	struct media_bay_info	*bay = macio_get_drvdata(mdev);
 
-	if (state.event != mdev->ofdev.dev.power.power_state.event && state.event == PM_EVENT_SUSPEND) {
+	if (state.event != mdev->ofdev.dev.power.power_state.event
+	    && (state.event & PM_EVENT_SLEEP)) {
 		down(&bay->lock);
 		bay->sleeping = 1;
 		set_mb_power(bay, 0);

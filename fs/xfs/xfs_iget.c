@@ -60,8 +60,6 @@
  *        within the file system for the inode being requested.
  * lock_flags -- flags indicating how to lock the inode.  See the comment
  *		 for xfs_ilock() for a list of valid values.
- * bno -- the block number starting the buffer containing the inode,
- *	  if known (as by bulkstat), else 0.
  */
 STATIC int
 xfs_iget_core(
@@ -71,8 +69,7 @@ xfs_iget_core(
 	xfs_ino_t	ino,
 	uint		flags,
 	uint		lock_flags,
-	xfs_inode_t	**ipp,
-	xfs_daddr_t	bno)
+	xfs_inode_t	**ipp)
 {
 	xfs_inode_t	*ip;
 	xfs_inode_t	*iq;
@@ -227,8 +224,8 @@ finish_inode:
 	 * Read the disk inode attributes into a new inode structure and get
 	 * a new vnode for it. This should also initialize i_ino and i_mount.
 	 */
-	error = xfs_iread(mp, tp, ino, &ip, bno,
-			  (flags & XFS_IGET_BULKSTAT) ? XFS_IMAP_BULKSTAT : 0);
+	error = xfs_iread(mp, tp, ino, &ip,
+			  (flags & XFS_IGET_UNTRUSTED) ? XFS_IMAP_BULKSTAT : 0);
 	if (error) {
 		xfs_put_perag(mp, pag);
 		return error;
@@ -359,8 +356,7 @@ xfs_iget(
 	xfs_ino_t	ino,
 	uint		flags,
 	uint		lock_flags,
-	xfs_inode_t	**ipp,
-	xfs_daddr_t	bno)
+	xfs_inode_t	**ipp)
 {
 	struct inode	*inode;
 	bhv_vnode_t	*vp = NULL;
@@ -377,7 +373,7 @@ retry:
 		if (inode->i_state & I_NEW) {
 			vn_initialize(inode);
 			error = xfs_iget_core(vp, mp, tp, ino, flags,
-					lock_flags, ipp, bno);
+					lock_flags, ipp);
 			if (error) {
 				vn_mark_bad(vp);
 				if (inode->i_state & I_NEW)

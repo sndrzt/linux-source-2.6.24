@@ -370,6 +370,7 @@ static int get_name(struct socket *sock, struct sockaddr *uaddr,
 	if (down_interruptible(&tsock->sem))
 		return -ERESTARTSYS;
 
+	memset(addr, 0, sizeof(*addr));
 	*uaddr_len = sizeof(*addr);
 	addr->addrtype = TIPC_ADDR_ID;
 	addr->family = AF_TIPC;
